@@ -1,6 +1,12 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    const { startBackupScheduler } = await import("./lib/backup");
-    await startBackupScheduler();
+    try {
+      const { startBackupScheduler } = await import("./lib/backup");
+      void startBackupScheduler().catch((error) => {
+        console.error("Weekly backup scheduler failed to start", error);
+      });
+    } catch (error) {
+      console.error("Unable to start backup scheduler", error);
+    }
   }
 }
