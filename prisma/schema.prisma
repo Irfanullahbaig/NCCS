@@ -1,0 +1,400 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  PRINCIPAL
+  ACCOUNTANT
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum StudentType {
+  SELF
+  SCHOLARSHIP
+  NEED_BASED
+}
+
+enum StudentStatus {
+  ACTIVE
+  INACTIVE
+  GRADUATED
+  SUSPENDED
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  ON_LEAVE
+  RESIGNED
+  TERMINATED
+}
+
+enum ClassStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum FeeStatus {
+  PAID
+  PARTIALLY_PAID
+  PENDING
+  OVERDUE
+  WAIVED
+}
+
+enum SalaryStatus {
+  PAID
+  PARTIALLY_PAID
+  PENDING
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CHEQUE
+  ONLINE
+  OTHER
+}
+
+enum IncomeCategory {
+  STUDENT_FEE
+  ADMISSION_FEE
+  REGISTRATION_FEE
+  TRANSPORT_FEE
+  OTHER_INCOME
+}
+
+enum ExpenseCategory {
+  SALARIES
+  UTILITIES
+  RENT
+  MAINTENANCE
+  SUPPLIES
+  TRANSPORT
+  OTHER_EXPENSES
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(ACCOUNTANT)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  createdById  String?
+  updatedById  String?
+  auditLogs    AuditLog[]
+}
+
+model Sequence {
+  name  String @id
+  value Int
+}
+
+model Setting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+}
+
+model AcademicYear {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  startDate   DateTime
+  endDate     DateTime
+  isActive    Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  createdById String?
+  updatedById String?
+  classes     Class[]
+  feeRecords  FeeRecord[]
+}
+
+model Program {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  status      String   @default("ACTIVE")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+  updatedById String?
+  classes     Class[]
+}
+
+model Subject {
+  id          String           @id @default(cuid())
+  name        String
+  code        String           @unique
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  createdById String?
+  updatedById String?
+  classes     ClassSubject[]
+  staff       StaffSubject[]
+  assignments StaffAssignment[]
+}
+
+model Class {
+  id             String             @id @default(cuid())
+  code           String             @unique
+  name           String
+  programId      String
+  academicYearId String
+  classTeacherId String?
+  feeAmount      Int
+  status         ClassStatus        @default(ACTIVE)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  createdById    String?
+  updatedById    String?
+  program        Program            @relation(fields: [programId], references: [id])
+  academicYear   AcademicYear       @relation(fields: [academicYearId], references: [id])
+  classTeacher   Staff?             @relation("ClassTeacher", fields: [classTeacherId], references: [id])
+  subjects       ClassSubject[]
+  students       Student[]
+  assignments    StaffAssignment[]
+  income         IncomeTransaction[]
+  feeRecords     FeeRecord[]
+
+  @@unique([name, programId, academicYearId])
+}
+
+model ClassSubject {
+  classId   String
+  subjectId String
+  class     Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@id([classId, subjectId])
+}
+
+model Staff {
+  id               String             @id @default(cuid())
+  staffId          String             @unique
+  firstName        String
+  lastName         String
+  qualification    String
+  dateOfJoining    DateTime
+  contactNumber    String
+  emergencyContact String?
+  email            String?
+  address          String
+  gender           Gender
+  employmentStatus EmploymentStatus   @default(ACTIVE)
+  salaryAmount     Int                @default(0)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  createdById      String?
+  updatedById      String?
+  classTeacherOf   Class[]            @relation("ClassTeacher")
+  subjects         StaffSubject[]
+  assignments      StaffAssignment[]
+  salaryRecords    SalaryRecord[]
+  salaryPayments   SalaryPayment[]
+}
+
+model StaffSubject {
+  staffId   String
+  subjectId String
+  staff     Staff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@id([staffId, subjectId])
+}
+
+model StaffAssignment {
+  id        String   @id @default(cuid())
+  staffId   String
+  classId   String
+  subjectId String?
+  createdAt DateTime @default(now())
+  staff     Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subject   Subject? @relation(fields: [subjectId], references: [id])
+
+  @@unique([staffId, classId, subjectId])
+}
+
+model Student {
+  id              String              @id @default(cuid())
+  registrationNo  String              @unique
+  firstName       String
+  lastName        String
+  fatherName      String
+  classId         String
+  dateOfAdmission DateTime
+  gender          Gender
+  contactNumber   String
+  email           String?
+  address         String
+  studentType     StudentType
+  feeAmount       Int
+  status          StudentStatus       @default(ACTIVE)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  createdById     String?
+  updatedById     String?
+  deletedAt       DateTime?
+  class           Class               @relation(fields: [classId], references: [id])
+  feeRecords      FeeRecord[]
+  payments        FeePayment[]
+  income          IncomeTransaction[]
+}
+
+model FeeRecord {
+  id              String       @id @default(cuid())
+  studentId       String
+  classId         String
+  academicYearId  String
+  month           Int
+  year            Int
+  expectedAmount  Int
+  paidAmount      Int          @default(0)
+  waivedAmount    Int          @default(0)
+  remainingAmount Int
+  status          FeeStatus    @default(PENDING)
+  dueDate         DateTime
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  createdById     String?
+  updatedById     String?
+  student         Student      @relation(fields: [studentId], references: [id])
+  class           Class        @relation(fields: [classId], references: [id])
+  academicYear    AcademicYear @relation(fields: [academicYearId], references: [id])
+  payments        FeePayment[]
+
+  @@unique([studentId, year, month])
+}
+
+model FeePayment {
+  id                  String             @id @default(cuid())
+  feeRecordId         String
+  studentId           String
+  amount              Int
+  paymentDate         DateTime
+  paymentMethod       PaymentMethod
+  referenceNumber     String?
+  notes               String?
+  incomeTransactionId String             @unique
+  voidedAt            DateTime?
+  voidedById          String?
+  voidReason          String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  createdById         String?
+  updatedById         String?
+  feeRecord           FeeRecord          @relation(fields: [feeRecordId], references: [id])
+  student             Student            @relation(fields: [studentId], references: [id])
+  incomeTransaction   IncomeTransaction  @relation(fields: [incomeTransactionId], references: [id])
+}
+
+model IncomeTransaction {
+  id              String          @id @default(cuid())
+  incomeId        String          @unique
+  date            DateTime
+  amount          Int
+  category        IncomeCategory
+  source          String?
+  studentId       String?
+  classId         String?
+  paymentMethod   PaymentMethod
+  referenceNumber String?
+  notes           String?
+  voidedAt        DateTime?
+  voidedById      String?
+  voidReason      String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  createdById     String?
+  updatedById     String?
+  student         Student?        @relation(fields: [studentId], references: [id])
+  class           Class?          @relation(fields: [classId], references: [id])
+  feePayment      FeePayment?
+}
+
+model ExpenseTransaction {
+  id              String          @id @default(cuid())
+  expenseId       String          @unique
+  date            DateTime
+  amount          Int
+  category        ExpenseCategory
+  paidTo          String
+  paymentMethod   PaymentMethod
+  referenceNumber String?
+  description     String?
+  notes           String?
+  voidedAt        DateTime?
+  voidedById      String?
+  voidReason      String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  createdById     String?
+  updatedById     String?
+  salaryPayment   SalaryPayment?
+}
+
+model SalaryRecord {
+  id              String         @id @default(cuid())
+  staffId         String
+  month           Int
+  year            Int
+  expectedAmount  Int
+  paidAmount      Int            @default(0)
+  remainingAmount Int
+  status          SalaryStatus   @default(PENDING)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  createdById     String?
+  updatedById     String?
+  staff           Staff          @relation(fields: [staffId], references: [id])
+  payments        SalaryPayment[]
+
+  @@unique([staffId, year, month])
+}
+
+model SalaryPayment {
+  id                   String             @id @default(cuid())
+  salaryRecordId       String
+  staffId              String
+  amount               Int
+  paymentDate          DateTime
+  paymentMethod        PaymentMethod
+  referenceNumber      String?
+  notes                String?
+  expenseTransactionId String             @unique
+  voidedAt             DateTime?
+  voidedById           String?
+  voidReason           String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  createdById          String?
+  updatedById          String?
+  salaryRecord         SalaryRecord       @relation(fields: [salaryRecordId], references: [id])
+  staff                Staff              @relation(fields: [staffId], references: [id])
+  expenseTransaction   ExpenseTransaction @relation(fields: [expenseTransactionId], references: [id])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entityType String
+  entityId   String?
+  details    String?
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id])
+}

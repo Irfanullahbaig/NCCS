@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 88" role="img" aria-label="NCCS">
+  <rect width="360" height="88" rx="16" fill="#E10600"/>
+  <text
+    x="180"
+    y="62"
+    text-anchor="middle"
+    fill="#FFFFFF"
+    font-family="Times New Roman, Times, Georgia, serif"
+    font-size="56"
+    font-weight="500"
+    letter-spacing="6"
+  >NCCS</text>
+</svg>
