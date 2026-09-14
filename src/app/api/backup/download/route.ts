@@ -5,6 +5,7 @@ import { can } from "@/lib/permissions";
 import { getBackupFile } from "@/lib/backup";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const user = await getSession();

@@ -8,6 +8,7 @@ import { writeAudit } from "@/lib/audit";
 import { restoreFromFile } from "@/lib/backup";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const MAX_BYTES = 50 * 1024 * 1024;
 

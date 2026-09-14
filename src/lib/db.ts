@@ -2,29 +2,39 @@ import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-function assertDatabaseUrl() {
-  const url = process.env.DATABASE_URL ?? "";
-  if (!url) {
-    throw new Error("DATABASE_URL is not set. Add your Supabase Postgres URI to .env.");
-  }
-  if (url.startsWith("file:")) {
-    throw new Error("DATABASE_URL still points at SQLite. Replace it with your Supabase Postgres connection string.");
-  }
+function resolveDatabaseUrl() {
+  const candidates = [process.env.DATABASE_URL, process.env.DIRECT_URL];
+  return candidates.find((value) => value?.startsWith("postgres")) ?? process.env.DATABASE_URL ?? "";
 }
 
-assertDatabaseUrl();
-
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
+function createPrismaClient() {
+  const url = resolveDatabaseUrl();
+  return new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+    ...(url ? { datasources: { db: { url } } } : {}),
   });
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
 }
+
+function getPrisma() {
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = createPrismaClient();
+  }
+  return globalForPrisma.prisma;
+}
+
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop, receiver) {
+    if (prop === "then") return undefined;
+    const client = getPrisma();
+    const value = Reflect.get(client, prop, receiver);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+});
 
 export async function reconnectPrisma() {
-  await prisma.$disconnect();
-  await prisma.$connect();
+  if (globalForPrisma.prisma) {
+    await globalForPrisma.prisma.$disconnect();
+    globalForPrisma.prisma = undefined;
+  }
+  await getPrisma().$connect();
 }

@@ -9,19 +9,32 @@ export async function loginAction(formData: FormData) {
   const password = String(formData.get("password") ?? "");
   const next = String(formData.get("next") ?? "/") || "/";
 
-  const user = await authenticate(email, password);
+  let user;
+  try {
+    user = await authenticate(email, password);
+  } catch (error) {
+    console.error("Login database error", error);
+    redirect("/login?error=server");
+  }
+
   if (!user) {
     redirect("/login?error=invalid");
   }
 
-  await createSession(user);
-  await writeAudit({
-    userId: user.id,
-    action: "USER_LOGIN",
-    entityType: "User",
-    entityId: user.id,
-    details: { email: user.email },
-  });
+  try {
+    await createSession(user);
+    await writeAudit({
+      userId: user.id,
+      action: "USER_LOGIN",
+      entityType: "User",
+      entityId: user.id,
+      details: { email: user.email },
+    });
+  } catch (error) {
+    console.error("Login session error", error);
+    redirect("/login?error=server");
+  }
+
   redirect(next.startsWith("/") ? next : "/");
 }
 

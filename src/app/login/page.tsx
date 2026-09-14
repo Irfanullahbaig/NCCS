@@ -52,8 +52,13 @@ export default async function LoginPage({
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal">Welcome back</p>
           <h2 className="mt-2 text-3xl font-semibold text-navy">Sign in</h2>
           <p className="mt-2 text-sm text-slate-500">Use your assigned role to access the modules you are permitted to manage.</p>
-          {params.error ? (
+          {params.error === "invalid" ? (
             <p className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">Invalid email or password.</p>
+          ) : null}
+          {params.error === "server" ? (
+            <p className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              Could not connect to the database. Check the Supabase Postgres URL in your environment variables, then try again.
+            </p>
           ) : null}
           <form action={loginAction} className="mt-8 space-y-4">
             <input type="hidden" name="next" value={params.next ?? "/"} />

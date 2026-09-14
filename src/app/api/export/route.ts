@@ -5,6 +5,8 @@ import { prisma } from "@/lib/db";
 import { currentMonthYear, fullName, toCsv } from "@/lib/utils";
 import { STUDENT_TYPE_LABELS } from "@/lib/constants";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: Request) {
   const user = await getSession();
   if (!user || !can(user.role, "reports.export")) {
