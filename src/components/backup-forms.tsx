@@ -165,8 +165,8 @@ export function BackupActions({ backups }: { backups: BackupMeta[] }) {
       </form>
       <form onSubmit={restoreUpload} className="grid gap-3 rounded-xl border border-slate-200 p-4">
         <h3 className="text-sm font-semibold text-navy">Restore from an uploaded file</h3>
-        <Field label="Backup file (.db)">
-          <input type="file" name="file" accept=".db,.sqlite" required className="block w-full text-sm" />
+        <Field label="Backup file (.json)">
+          <input type="file" name="file" accept=".json,application/json" required className="block w-full text-sm" />
         </Field>
         <Field label='Type RESTORE to confirm'>
           <Input name="confirm" placeholder="RESTORE" />

@@ -24,14 +24,14 @@ export async function POST(request: Request) {
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
-    return NextResponse.json({ error: "Upload a backup database file" }, { status: 400 });
+    return NextResponse.json({ error: "Upload a backup JSON file" }, { status: 400 });
   }
   if (file.size > MAX_BYTES) {
     return NextResponse.json({ error: "Backup file is too large" }, { status: 400 });
   }
 
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "nccs-restore-"));
-  const tempPath = path.join(tempDir, "upload.db");
+  const tempPath = path.join(tempDir, "upload.json");
   try {
     await writeFile(tempPath, Buffer.from(await file.arrayBuffer()));
     const safety = await restoreFromFile(tempPath);

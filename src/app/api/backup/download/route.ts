@@ -22,7 +22,7 @@ export async function GET(request: Request) {
     const [data, info] = await Promise.all([readFile(filePath), stat(filePath)]);
     return new NextResponse(data, {
       headers: {
-        "Content-Type": "application/octet-stream",
+        "Content-Type": "application/json",
         "Content-Length": String(info.size),
         "Content-Disposition": `attachment; filename="${filename}"`,
       },

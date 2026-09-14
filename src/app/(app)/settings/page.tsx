@@ -49,7 +49,7 @@ export default async function SettingsPage() {
       </div>
       <Card title="Database backup & recovery" className="mt-4">
         <p className="mb-4 text-sm text-slate-600">
-          A complete database backup is created automatically every week. You can also download a copy now or restore an earlier backup. Restore is limited to Admin.
+          A complete JSON snapshot of the Supabase database is created automatically every week. You can also download a copy now or restore an earlier backup. Restore is limited to Admin.
         </p>
         <BackupActions backups={backups} />
       </Card>
