@@ -4,13 +4,8 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 function resolveDatabaseUrl() {
   const candidates = [process.env.DIRECT_URL, process.env.DATABASE_URL];
-  const postgres = candidates.filter((value) => value?.startsWith("postgres"));
-  return (
-    postgres.find((value) => value.includes(":5432")) ??
-    postgres[0] ??
-    process.env.DATABASE_URL ??
-    ""
-  );
+  const postgres = candidates.filter((value): value is string => Boolean(value?.startsWith("postgres")));
+  return postgres.find((value) => value.includes(":5432")) ?? postgres[0] ?? process.env.DATABASE_URL ?? "";
 }
 
 function createPrismaClient() {
