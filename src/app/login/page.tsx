@@ -1,6 +1,8 @@
 import { loginAction } from "@/actions/auth";
 import { SCHOOL_FULL_NAME } from "@/lib/constants";
 
+export const dynamic = "force-dynamic";
+
 function LoginLogo({
   align = "start",
   size = "md",
