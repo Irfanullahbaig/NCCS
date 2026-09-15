@@ -8,12 +8,18 @@ export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const setting = await prisma.setting.findUnique({ where: { key: "schoolName" } });
-  if (can(user.role, "backup.manage")) {
+  let schoolName = SCHOOL_NAME;
+  try {
+    const setting = await prisma.setting.findUnique({ where: { key: "schoolName" } });
+    schoolName = setting?.value || SCHOOL_NAME;
+  } catch (error) {
+    console.error("Unable to load school settings", error);
+  }
+  if (!process.env.VERCEL && can(user.role, "backup.manage")) {
     void import("@/lib/backup").then(({ ensureWeeklyBackup }) => ensureWeeklyBackup()).catch(() => undefined);
   }
   return (
-    <AppShell user={user} schoolName={setting?.value || SCHOOL_NAME}>
+    <AppShell user={user} schoolName={schoolName}>
       {children}
     </AppShell>
   );

@@ -1,7 +1,7 @@
 import { jwtVerify } from "jose";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = new Set(["/login"]);
+const PUBLIC_PATHS = new Set(["/login", "/api/auth/login", "/api/auth/logout"]);
 
 function secret() {
   return new TextEncoder().encode(process.env.AUTH_SECRET ?? "");
@@ -13,7 +13,7 @@ function isFinanceAnalyticsPath(pathname: string) {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const isPublic = PUBLIC_PATHS.has(pathname);
+  const isPublic = PUBLIC_PATHS.has(pathname) || pathname.startsWith("/api/auth/");
   const token = request.cookies.get("nccs_session")?.value;
 
   if (!token && !isPublic) {
@@ -22,7 +22,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(login);
   }
 
-  if (token && isPublic) {
+  if (token && pathname === "/login") {
     return NextResponse.redirect(new URL("/", request.url));
   }
 

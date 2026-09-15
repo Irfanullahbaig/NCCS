@@ -1,4 +1,5 @@
 export async function register() {
+  if (process.env.VERCEL) return;
   if (process.env.NEXT_RUNTIME === "nodejs") {
     try {
       const { startBackupScheduler } = await import("./lib/backup");

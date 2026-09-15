@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/build.cjs",
     "start": "next start",
     "lint": "eslint",
     "db:push": "prisma db push",
@@ -12,7 +12,7 @@
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
     "db:backup": "node --env-file=.env --import tsx scripts/backup-now.ts",
     "db:import": "node --env-file=.env --import tsx scripts/import-snapshot.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "node scripts/prisma-generate.cjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

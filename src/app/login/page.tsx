@@ -1,4 +1,3 @@
-import { loginAction } from "@/actions/auth";
 import { SCHOOL_FULL_NAME } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +61,7 @@ export default async function LoginPage({
               Could not connect to the database. Check the Supabase Postgres URL in your environment variables, then try again.
             </p>
           ) : null}
-          <form action={loginAction} className="mt-8 space-y-4">
+          <form action="/api/auth/login" method="post" className="mt-8 space-y-4">
             <input type="hidden" name="next" value={params.next ?? "/"} />
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Email</label>
