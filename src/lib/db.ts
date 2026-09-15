@@ -8,8 +8,13 @@ function resolveDatabaseUrl() {
   return postgres.find((value) => value.includes(":5432")) ?? postgres[0] ?? process.env.DATABASE_URL ?? "";
 }
 
+function withConnectTimeout(url: string) {
+  if (!url || url.includes("connect_timeout=")) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}connect_timeout=10`;
+}
+
 function createPrismaClient() {
-  const url = resolveDatabaseUrl();
+  const url = withConnectTimeout(resolveDatabaseUrl());
   return new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
     ...(url ? { datasources: { db: { url } } } : {}),

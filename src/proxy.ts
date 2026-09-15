@@ -1,6 +1,5 @@
 import { jwtVerify } from "jose";
 import { NextResponse, type NextRequest } from "next/server";
-import { copyCookies, createClient as createSupabaseProxyClient } from "@/utils/supabase/middleware";
 
 const PUBLIC_PATHS = new Set(["/login"]);
 
@@ -14,23 +13,17 @@ function isFinanceAnalyticsPath(pathname: string) {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const { supabase, response } = createSupabaseProxyClient(request);
-  if (supabase) {
-    await supabase.auth.getUser();
-  }
-
-  const redirect = (url: URL) => copyCookies(response, NextResponse.redirect(url));
   const isPublic = PUBLIC_PATHS.has(pathname);
   const token = request.cookies.get("nccs_session")?.value;
 
   if (!token && !isPublic) {
     const login = new URL("/login", request.url);
     login.searchParams.set("next", pathname);
-    return redirect(login);
+    return NextResponse.redirect(login);
   }
 
   if (token && isPublic) {
-    return redirect(new URL("/", request.url));
+    return NextResponse.redirect(new URL("/", request.url));
   }
 
   if (token) {
@@ -44,19 +37,19 @@ export async function proxy(request: NextRequest) {
           pathname.startsWith("/api/backup")) &&
         role !== "ADMIN"
       ) {
-        return redirect(new URL("/", request.url));
+        return NextResponse.redirect(new URL("/", request.url));
       }
       if (role === "ACCOUNTANT" && isFinanceAnalyticsPath(pathname)) {
-        return redirect(new URL("/finance/income", request.url));
+        return NextResponse.redirect(new URL("/finance/income", request.url));
       }
     } catch {
-      const next = redirect(new URL("/login", request.url));
-      next.cookies.delete("nccs_session");
-      return next;
+      const response = NextResponse.redirect(new URL("/login", request.url));
+      response.cookies.delete("nccs_session");
+      return response;
     }
   }
 
-  return response;
+  return NextResponse.next();
 }
 
 export const config = {
