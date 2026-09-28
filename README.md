@@ -13,15 +13,6 @@ npx prisma db seed
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
-
-## Demo accounts
-
-| Role | Email | Password |
-| --- | --- | --- |
-| Admin | admin@nccs.edu | Admin@123 |
-| Principal | principal@nccs.edu | Principal@123 |
-| Accountant / HR | accountant@nccs.edu | Accountant@123 |
 
 ## Critical workflow
 
