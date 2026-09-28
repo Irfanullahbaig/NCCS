@@ -1,0 +1,3 @@
+-- Optional SQL seed. NCCS creates the first admin with:
+--   NCCS_ALLOW_SEED=1 npm run db:seed
+-- Do not put passwords in this file.

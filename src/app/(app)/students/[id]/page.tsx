@@ -2,9 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { getStudentById } from "@/lib/queries";
-import { formatPKR, fullName, monthLabel, toDateInput } from "@/lib/utils";
+import { formatDate, formatPKR, fullName, monthLabel, toDateInput } from "@/lib/utils";
 import { Card, PageHeader } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
 import { EditStudentButton, RecordPaymentButton } from "@/components/forms";
@@ -21,11 +21,9 @@ export default async function StudentProfilePage({
   if (!data) notFound();
   const { student, currentFee, totalPaid, totalOutstanding, month, year } = data;
 
-  const classes = await prisma.class.findMany({
-    where: { status: "ACTIVE" },
-    include: { program: true },
-  });
-  const classOptions = classes.map((item) => ({
+  const classesRes = await db().from("Class").select("*, program:Program(*)").eq("status", "ACTIVE");
+  if (classesRes.error) throw classesRes.error;
+  const classOptions = (classesRes.data ?? []).map((item) => ({
     id: item.id,
     name: item.name,
     program: item.program.name,
@@ -79,7 +77,7 @@ export default async function StudentProfilePage({
             <Info label="Contact" value={student.contactNumber} />
             <Info label="Email" value={student.email || "—"} />
             <Info label="Gender" value={student.gender} />
-            <Info label="Admission" value={student.dateOfAdmission.toLocaleDateString()} />
+            <Info label="Admission" value={formatDate(student.dateOfAdmission)} />
             <Info label="Address" value={student.address} />
             <Info label="Class teacher" value={student.class.classTeacher ? fullName(student.class.classTeacher.firstName, student.class.classTeacher.lastName) : "Unassigned"} />
           </dl>
@@ -110,7 +108,7 @@ export default async function StudentProfilePage({
                   <tbody>
                     {student.payments.map((payment) => (
                       <tr key={payment.id}>
-                        <td>{payment.paymentDate.toLocaleDateString()}</td>
+                        <td>{formatDate(payment.paymentDate)}</td>
                         <td>{formatPKR(payment.amount)}</td>
                         <td>{PAYMENT_METHOD_LABELS[payment.paymentMethod]}</td>
                         <td>{payment.referenceNumber || "—"}</td>

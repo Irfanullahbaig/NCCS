@@ -1,14 +1,17 @@
 import { requirePermission } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { PageHeader, EmptyState } from "@/components/ui";
+import { formatDateTime } from "@/lib/utils";
 
 export default async function AuditPage() {
   await requirePermission("audit.view");
-  const logs = await prisma.auditLog.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 200,
-    include: { user: true },
-  });
+  const logsRes = await db()
+    .from("AuditLog")
+    .select("*, user:User(*)")
+    .order("createdAt", { ascending: false })
+    .limit(200);
+  if (logsRes.error) throw logsRes.error;
+  const logs = logsRes.data ?? [];
 
   return (
     <div>
@@ -32,11 +35,13 @@ export default async function AuditPage() {
               <tbody>
                 {logs.map((log) => (
                   <tr key={log.id}>
-                    <td>{log.createdAt.toLocaleString()}</td>
+                    <td>{formatDateTime(log.createdAt)}</td>
                     <td>{log.user?.name ?? "System"}</td>
-                    <td>{log.action.replaceAll("_", " ")}</td>
-                    <td>{log.entityType}{log.entityId ? ` · ${log.entityId.slice(0, 8)}` : ""}</td>
-                    <td className="max-w-sm truncate text-slate-500">{log.details}</td>
+                    <td>{String(log.action ?? "").replaceAll("_", " ") || "—"}</td>
+                    <td>{log.entityType}{log.entityId ? ` · ${String(log.entityId).slice(0, 8)}` : ""}</td>
+                    <td className="max-w-sm truncate text-slate-500">
+                      {typeof log.details === "string" ? log.details : log.details ? JSON.stringify(log.details) : "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>

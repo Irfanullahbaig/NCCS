@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>NCCS setup</title>
+    <style>
+      :root { color-scheme: light; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: #0f2744;
+        color: #0f2744;
+      }
+      .card {
+        width: min(420px, calc(100vw - 32px));
+        background: #fff;
+        border-radius: 20px;
+        padding: 28px 24px 24px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+      }
+      .mark {
+        width: 72px;
+        height: 72px;
+        margin: 0 auto 16px;
+        display: grid;
+        place-items: center;
+        border-radius: 18px;
+        background: #e10600;
+        color: #fff;
+        font-size: 18px;
+        letter-spacing: 1px;
+        font-weight: 700;
+      }
+      h1 { margin: 0; text-align: center; font-size: 24px; }
+      p { margin: 8px 0 20px; text-align: center; color: #5b6b7c; font-family: system-ui, sans-serif; font-size: 14px; }
+      label { display: block; margin: 12px 0 6px; font-family: system-ui, sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5b6b7c; }
+      input {
+        width: 100%;
+        height: 42px;
+        border: 1px solid #d7dee6;
+        border-radius: 12px;
+        padding: 0 12px;
+        font-family: system-ui, sans-serif;
+        font-size: 14px;
+      }
+      button {
+        width: 100%;
+        height: 44px;
+        margin-top: 20px;
+        border: 0;
+        border-radius: 12px;
+        background: #14b8a6;
+        color: #fff;
+        font-family: system-ui, sans-serif;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.6; cursor: default; }
+      .error { min-height: 20px; margin: 10px 0 0; color: #be123c; font-family: system-ui, sans-serif; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <form class="card" id="form">
+      <div class="mark">NCCS</div>
+      <h1>Set up this computer</h1>
+      <p>Create the first administrator for this local NCCS installation. Data stays on this machine.</p>
+      <label for="name">Administrator name</label>
+      <input id="name" name="name" required autocomplete="name" />
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" required autocomplete="username" />
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" required minlength="8" autocomplete="new-password" />
+      <div class="error" id="error"></div>
+      <button type="submit" id="submit">Create local admin</button>
+    </form>
+    <script>
+      const form = document.getElementById("form");
+      const error = document.getElementById("error");
+      const submit = document.getElementById("submit");
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        error.textContent = "";
+        submit.disabled = true;
+        try {
+          const result = await window.nccsDesktop.createAdmin({
+            name: document.getElementById("name").value,
+            email: document.getElementById("email").value,
+            password: document.getElementById("password").value,
+          });
+          if (!result?.ok) error.textContent = result?.error || "Could not create the administrator.";
+        } catch (err) {
+          error.textContent = err instanceof Error ? err.message : "Could not create the administrator.";
+        } finally {
+          submit.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

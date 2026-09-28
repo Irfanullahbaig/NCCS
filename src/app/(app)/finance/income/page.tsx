@@ -1,8 +1,7 @@
-import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { prisma } from "@/lib/db";
-import { formatPKR, fullName } from "@/lib/utils";
+import { db } from "@/lib/db";
+import { formatDate, formatPKR, fullName } from "@/lib/utils";
 import { PageHeader, EmptyState, Input, Select, ViewOnlyBadge } from "@/components/ui";
 import { AddIncomeButton, VoidButton } from "@/components/forms";
 import { INCOME_CATEGORY_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/constants";
@@ -14,44 +13,47 @@ export default async function IncomePage({
 }) {
   const user = await requirePermission("finance.view");
   const params = await searchParams;
-  const where: Prisma.IncomeTransactionWhereInput = {
-    ...(params.includeVoided === "1" ? {} : { voidedAt: null }),
-    ...(params.q
-      ? {
-          OR: [
-            { incomeId: { contains: params.q } },
-            { source: { contains: params.q } },
-            { referenceNumber: { contains: params.q } },
-            { student: { firstName: { contains: params.q } } },
-            { student: { lastName: { contains: params.q } } },
-          ],
-        }
-      : {}),
-    ...(params.category ? { category: params.category as never } : {}),
-    ...(params.paymentMethod ? { paymentMethod: params.paymentMethod as never } : {}),
-    ...(params.from || params.to
-      ? {
-          date: {
-            ...(params.from ? { gte: new Date(params.from) } : {}),
-            ...(params.to ? { lte: new Date(params.to) } : {}),
-          },
-        }
-      : {}),
-  };
 
-  const [rows, students, classes] = await Promise.all([
-    prisma.incomeTransaction.findMany({
-      where,
-      orderBy: { date: "desc" },
-      include: { student: true, class: { include: { program: true } } },
-    }),
-    prisma.student.findMany({
-      where: { deletedAt: null },
-      include: { class: { include: { program: true } } },
-      orderBy: { firstName: "asc" },
-    }),
-    prisma.class.findMany({ include: { program: true } }),
+  let incomeQuery = db()
+    .from("IncomeTransaction")
+    .select("*, student:Student(*), class:Class(*, program:Program(*))")
+    .order("date", { ascending: false });
+  if (params.includeVoided !== "1") incomeQuery = incomeQuery.is("voidedAt", null);
+  if (params.category) incomeQuery = incomeQuery.eq("category", params.category as never);
+  if (params.paymentMethod) incomeQuery = incomeQuery.eq("paymentMethod", params.paymentMethod as never);
+  if (params.from) incomeQuery = incomeQuery.gte("date", new Date(params.from).toISOString());
+  if (params.to) incomeQuery = incomeQuery.lte("date", new Date(params.to).toISOString());
+
+  const [rowsRes, studentsRes, classesRes] = await Promise.all([
+    incomeQuery,
+    db()
+      .from("Student")
+      .select("*, class:Class(*, program:Program(*))")
+      .is("deletedAt", null)
+      .order("firstName", { ascending: true }),
+    db().from("Class").select("*, program:Program(*)"),
   ]);
+  if (rowsRes.error) throw rowsRes.error;
+  if (studentsRes.error) throw studentsRes.error;
+  if (classesRes.error) throw classesRes.error;
+
+  const q = params.q?.trim().toLowerCase();
+  const rows = (rowsRes.data ?? []).filter((row) => {
+    if (!q) return true;
+    const haystack = [
+      row.incomeId,
+      row.source,
+      row.referenceNumber,
+      row.student?.firstName,
+      row.student?.lastName,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(q);
+  });
+  const students = studentsRes.data ?? [];
+  const classes = classesRes.data ?? [];
 
   return (
     <div>
@@ -118,7 +120,7 @@ export default async function IncomePage({
                 {rows.map((row) => (
                   <tr key={row.id} className={row.voidedAt ? "opacity-50" : ""}>
                     <td>{row.incomeId}</td>
-                    <td>{row.date.toLocaleDateString()}</td>
+                    <td>{formatDate(row.date)}</td>
                     <td>{INCOME_CATEGORY_LABELS[row.category]}</td>
                     <td>
                       {row.student ? fullName(row.student.firstName, row.student.lastName) : row.source || "—"}

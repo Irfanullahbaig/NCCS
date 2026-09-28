@@ -1,8 +1,7 @@
 import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
-import type { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import {
   SNAPSHOT_VERSION,
   type BackupKind,
@@ -39,6 +38,72 @@ const SNAPSHOT_KEYS: Array<keyof SnapshotData> = [
   "auditLogs",
 ];
 
+const DUMP_TABLES = [
+  ["users", "User"],
+  ["sequences", "Sequence"],
+  ["settings", "Setting"],
+  ["academicYears", "AcademicYear"],
+  ["programs", "Program"],
+  ["subjects", "Subject"],
+  ["staff", "Staff"],
+  ["classes", "Class"],
+  ["classSubjects", "ClassSubject"],
+  ["staffSubjects", "StaffSubject"],
+  ["staffAssignments", "StaffAssignment"],
+  ["students", "Student"],
+  ["feeRecords", "FeeRecord"],
+  ["incomeTransactions", "IncomeTransaction"],
+  ["feePayments", "FeePayment"],
+  ["expenseTransactions", "ExpenseTransaction"],
+  ["salaryRecords", "SalaryRecord"],
+  ["salaryPayments", "SalaryPayment"],
+  ["auditLogs", "AuditLog"],
+] as const;
+
+const DELETE_ORDER: Array<[string, string]> = [
+  ["AuditLog", "id"],
+  ["SalaryPayment", "id"],
+  ["SalaryRecord", "id"],
+  ["FeePayment", "id"],
+  ["IncomeTransaction", "id"],
+  ["ExpenseTransaction", "id"],
+  ["FeeRecord", "id"],
+  ["Student", "id"],
+  ["StaffAssignment", "id"],
+  ["StaffSubject", "staffId"],
+  ["ClassSubject", "classId"],
+  ["Class", "id"],
+  ["Staff", "id"],
+  ["Subject", "id"],
+  ["Program", "id"],
+  ["AcademicYear", "id"],
+  ["Setting", "id"],
+  ["Sequence", "name"],
+  ["User", "id"],
+];
+
+const INSERT_ORDER = [
+  ["users", "User"],
+  ["sequences", "Sequence"],
+  ["settings", "Setting"],
+  ["academicYears", "AcademicYear"],
+  ["programs", "Program"],
+  ["subjects", "Subject"],
+  ["staff", "Staff"],
+  ["classes", "Class"],
+  ["classSubjects", "ClassSubject"],
+  ["staffSubjects", "StaffSubject"],
+  ["staffAssignments", "StaffAssignment"],
+  ["students", "Student"],
+  ["feeRecords", "FeeRecord"],
+  ["incomeTransactions", "IncomeTransaction"],
+  ["feePayments", "FeePayment"],
+  ["expenseTransactions", "ExpenseTransaction"],
+  ["salaryRecords", "SalaryRecord"],
+  ["salaryPayments", "SalaryPayment"],
+  ["auditLogs", "AuditLog"],
+] as const;
+
 type GlobalBackup = typeof globalThis & { nccsBackupTimer?: NodeJS.Timeout };
 
 function stamp(date = new Date()) {
@@ -53,85 +118,50 @@ export async function ensureBackupDir() {
   await fs.mkdir(BACKUP_DIR, { recursive: true });
 }
 
+async function countRows(
+  table:
+    | "Student"
+    | "Staff"
+    | "Class"
+    | "Subject"
+    | "FeeRecord"
+    | "SalaryRecord"
+    | "IncomeTransaction"
+    | "ExpenseTransaction"
+    | "User",
+  apply?: (query: ReturnType<ReturnType<typeof db>["from"]>) => ReturnType<ReturnType<typeof db>["from"]>,
+) {
+  let query = db().from(table).select("id", { count: "exact", head: true });
+  if (apply) query = apply(query) as typeof query;
+  const result = await query;
+  if (result.error) throw result.error;
+  return result.count ?? 0;
+}
+
 async function collectCounts(): Promise<BackupMeta["counts"]> {
   const [students, staff, classes, subjects, feeRecords, salaryRecords, income, expenses, users] = await Promise.all([
-    prisma.student.count({ where: { deletedAt: null } }),
-    prisma.staff.count(),
-    prisma.class.count(),
-    prisma.subject.count(),
-    prisma.feeRecord.count(),
-    prisma.salaryRecord.count(),
-    prisma.incomeTransaction.count({ where: { voidedAt: null } }),
-    prisma.expenseTransaction.count({ where: { voidedAt: null } }),
-    prisma.user.count(),
+    countRows("Student", (query) => query.is("deletedAt", null)),
+    countRows("Staff"),
+    countRows("Class"),
+    countRows("Subject"),
+    countRows("FeeRecord"),
+    countRows("SalaryRecord"),
+    countRows("IncomeTransaction", (query) => query.is("voidedAt", null)),
+    countRows("ExpenseTransaction", (query) => query.is("voidedAt", null)),
+    countRows("User"),
   ]);
   return { students, staff, classes, subjects, feeRecords, salaryRecords, income, expenses, users };
 }
 
-async function dumpSnapshotData(): Promise<SnapshotData> {
-  const [
-    users,
-    sequences,
-    settings,
-    academicYears,
-    programs,
-    subjects,
-    staff,
-    classes,
-    classSubjects,
-    staffSubjects,
-    staffAssignments,
-    students,
-    feeRecords,
-    incomeTransactions,
-    feePayments,
-    expenseTransactions,
-    salaryRecords,
-    salaryPayments,
-    auditLogs,
-  ] = await prisma.$transaction([
-    prisma.user.findMany(),
-    prisma.sequence.findMany(),
-    prisma.setting.findMany(),
-    prisma.academicYear.findMany(),
-    prisma.program.findMany(),
-    prisma.subject.findMany(),
-    prisma.staff.findMany(),
-    prisma.class.findMany(),
-    prisma.classSubject.findMany(),
-    prisma.staffSubject.findMany(),
-    prisma.staffAssignment.findMany(),
-    prisma.student.findMany(),
-    prisma.feeRecord.findMany(),
-    prisma.incomeTransaction.findMany(),
-    prisma.feePayment.findMany(),
-    prisma.expenseTransaction.findMany(),
-    prisma.salaryRecord.findMany(),
-    prisma.salaryPayment.findMany(),
-    prisma.auditLog.findMany(),
-  ]);
+async function fetchAll(table: (typeof DUMP_TABLES)[number][1]) {
+  const result = await db().from(table).select("*");
+  if (result.error) throw result.error;
+  return result.data ?? [];
+}
 
-  return {
-    users,
-    sequences,
-    settings,
-    academicYears,
-    programs,
-    subjects,
-    staff,
-    classes,
-    classSubjects,
-    staffSubjects,
-    staffAssignments,
-    students,
-    feeRecords,
-    incomeTransactions,
-    feePayments,
-    expenseTransactions,
-    salaryRecords,
-    salaryPayments,
-    auditLogs,
-  };
+async function dumpSnapshotData(): Promise<SnapshotData> {
+  const entries = await Promise.all(DUMP_TABLES.map(async ([key, table]) => [key, await fetchAll(table)] as const));
+  return Object.fromEntries(entries) as SnapshotData;
 }
 
 function isIsoDateString(value: unknown): value is string {
@@ -153,72 +183,36 @@ export function isDatabaseSnapshot(value: unknown): value is DatabaseSnapshot {
   return SNAPSHOT_KEYS.every((key) => Array.isArray(snapshot.data[key]));
 }
 
-async function insertAll<T>(rows: unknown[], write: (records: T[]) => Promise<unknown>) {
+function serializeValue(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
+  return value;
+}
+
+function serializeRows(rows: unknown[]) {
+  return rows.map((row) => {
+    if (!row || typeof row !== "object") return row;
+    return Object.fromEntries(Object.entries(row as Record<string, unknown>).map(([key, value]) => [key, serializeValue(value)]));
+  });
+}
+
+async function deleteAll(table: (typeof DELETE_ORDER)[number][0], column: string) {
+  const result = await db().from(table as "User").delete().not(column, "is", null);
+  if (result.error) throw result.error;
+}
+
+async function insertAll(table: (typeof INSERT_ORDER)[number][1], rows: unknown[]) {
   if (!rows.length) return;
-  await write(rows as T[]);
+  const result = await db().from(table).insert(serializeRows(rows) as never);
+  if (result.error) throw result.error;
 }
 
 async function restoreSnapshotData(data: SnapshotData) {
-  await prisma.$transaction(
-    async (tx) => {
-      await tx.auditLog.deleteMany();
-      await tx.salaryPayment.deleteMany();
-      await tx.salaryRecord.deleteMany();
-      await tx.feePayment.deleteMany();
-      await tx.incomeTransaction.deleteMany();
-      await tx.expenseTransaction.deleteMany();
-      await tx.feeRecord.deleteMany();
-      await tx.student.deleteMany();
-      await tx.staffAssignment.deleteMany();
-      await tx.staffSubject.deleteMany();
-      await tx.classSubject.deleteMany();
-      await tx.class.deleteMany();
-      await tx.staff.deleteMany();
-      await tx.subject.deleteMany();
-      await tx.program.deleteMany();
-      await tx.academicYear.deleteMany();
-      await tx.setting.deleteMany();
-      await tx.sequence.deleteMany();
-      await tx.user.deleteMany();
-
-      await insertAll<Prisma.UserCreateManyInput>(data.users, (records) => tx.user.createMany({ data: records }));
-      await insertAll<Prisma.SequenceCreateManyInput>(data.sequences, (records) => tx.sequence.createMany({ data: records }));
-      await insertAll<Prisma.SettingCreateManyInput>(data.settings, (records) => tx.setting.createMany({ data: records }));
-      await insertAll<Prisma.AcademicYearCreateManyInput>(data.academicYears, (records) =>
-        tx.academicYear.createMany({ data: records }),
-      );
-      await insertAll<Prisma.ProgramCreateManyInput>(data.programs, (records) => tx.program.createMany({ data: records }));
-      await insertAll<Prisma.SubjectCreateManyInput>(data.subjects, (records) => tx.subject.createMany({ data: records }));
-      await insertAll<Prisma.StaffCreateManyInput>(data.staff, (records) => tx.staff.createMany({ data: records }));
-      await insertAll<Prisma.ClassCreateManyInput>(data.classes, (records) => tx.class.createMany({ data: records }));
-      await insertAll<Prisma.ClassSubjectCreateManyInput>(data.classSubjects, (records) =>
-        tx.classSubject.createMany({ data: records }),
-      );
-      await insertAll<Prisma.StaffSubjectCreateManyInput>(data.staffSubjects, (records) =>
-        tx.staffSubject.createMany({ data: records }),
-      );
-      await insertAll<Prisma.StaffAssignmentCreateManyInput>(data.staffAssignments, (records) =>
-        tx.staffAssignment.createMany({ data: records }),
-      );
-      await insertAll<Prisma.StudentCreateManyInput>(data.students, (records) => tx.student.createMany({ data: records }));
-      await insertAll<Prisma.FeeRecordCreateManyInput>(data.feeRecords, (records) => tx.feeRecord.createMany({ data: records }));
-      await insertAll<Prisma.IncomeTransactionCreateManyInput>(data.incomeTransactions, (records) =>
-        tx.incomeTransaction.createMany({ data: records }),
-      );
-      await insertAll<Prisma.FeePaymentCreateManyInput>(data.feePayments, (records) => tx.feePayment.createMany({ data: records }));
-      await insertAll<Prisma.ExpenseTransactionCreateManyInput>(data.expenseTransactions, (records) =>
-        tx.expenseTransaction.createMany({ data: records }),
-      );
-      await insertAll<Prisma.SalaryRecordCreateManyInput>(data.salaryRecords, (records) =>
-        tx.salaryRecord.createMany({ data: records }),
-      );
-      await insertAll<Prisma.SalaryPaymentCreateManyInput>(data.salaryPayments, (records) =>
-        tx.salaryPayment.createMany({ data: records }),
-      );
-      await insertAll<Prisma.AuditLogCreateManyInput>(data.auditLogs, (records) => tx.auditLog.createMany({ data: records }));
-    },
-    { timeout: 120_000, maxWait: 20_000 },
-  );
+  for (const [table, column] of DELETE_ORDER) {
+    await deleteAll(table, column);
+  }
+  for (const [key, table] of INSERT_ORDER) {
+    await insertAll(table, data[key]);
+  }
 }
 
 export async function createBackup(kind: BackupKind, _userId?: string | null) {

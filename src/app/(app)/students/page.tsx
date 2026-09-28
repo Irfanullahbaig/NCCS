@@ -1,13 +1,14 @@
-import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { ensureCurrentMonthFees } from "@/lib/finance";
 import { currentMonthYear, formatPKR, fullName, toDateInput } from "@/lib/utils";
 import { PageHeader, EmptyState, Input, Select } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
 import { AddStudentButton, DeleteStudentButton, EditStudentButton } from "@/components/forms";
 import Link from "next/link";
+
+const studentSelect = "*, class:Class(*, program:Program(*), academicYear:AcademicYear(*)), feeRecords:FeeRecord(*)";
 
 export default async function StudentsPage({
   searchParams,
@@ -19,46 +20,47 @@ export default async function StudentsPage({
   const params = await searchParams;
   const { month, year } = currentMonthYear();
 
-  const where: Prisma.StudentWhereInput = {
-    deletedAt: null,
-    ...(params.q
-      ? {
-          OR: [
-            { firstName: { contains: params.q } },
-            { lastName: { contains: params.q } },
-            { fatherName: { contains: params.q } },
-            { registrationNo: { contains: params.q } },
-            { class: { name: { contains: params.q } } },
-            { class: { program: { name: { contains: params.q } } } },
-          ],
-        }
-      : {}),
-    ...(params.studentType ? { studentType: params.studentType as never } : {}),
-    ...(params.gender ? { gender: params.gender as never } : {}),
-    ...(params.classId ? { classId: params.classId } : {}),
-    ...(params.academicYearId ? { class: { academicYearId: params.academicYearId } } : {}),
-    ...(params.feeStatus
-      ? { feeRecords: { some: { month, year, status: params.feeStatus as never } } }
-      : {}),
-  };
-
-  const [students, classes, years] = await Promise.all([
-    prisma.student.findMany({
-      where,
-      orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
-      include: {
-        class: { include: { program: true, academicYear: true } },
-        feeRecords: { where: { month, year } },
-      },
-    }),
-    prisma.class.findMany({
-      where: { status: "ACTIVE" },
-      include: { program: true },
-      orderBy: { name: "asc" },
-    }),
-    prisma.academicYear.findMany({ orderBy: { startDate: "desc" } }),
+  const [studentsRes, classesRes, yearsRes] = await Promise.all([
+    db().from("Student").select(studentSelect).is("deletedAt", null).order("firstName", { ascending: true }),
+    db().from("Class").select("*, program:Program(*)").eq("status", "ACTIVE").order("name", { ascending: true }),
+    db().from("AcademicYear").select("*").order("startDate", { ascending: false }),
   ]);
+  if (studentsRes.error) throw studentsRes.error;
+  if (classesRes.error) throw classesRes.error;
+  if (yearsRes.error) throw yearsRes.error;
 
+  const q = params.q?.trim().toLowerCase();
+  let students = (studentsRes.data ?? []).filter((student) => {
+    if (q) {
+      const haystack = [
+        student.firstName,
+        student.lastName,
+        student.fatherName,
+        student.registrationNo,
+        student.class?.name,
+        student.class?.program?.name,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    if (params.studentType && student.studentType !== params.studentType) return false;
+    if (params.gender && student.gender !== params.gender) return false;
+    if (params.classId && student.classId !== params.classId) return false;
+    if (params.academicYearId && student.class?.academicYearId !== params.academicYearId) return false;
+    if (params.feeStatus) {
+      const current = (student.feeRecords ?? []).some(
+        (record) => record.month === month && record.year === year && record.status === params.feeStatus,
+      );
+      if (!current) return false;
+    }
+    return true;
+  });
+  students = students.sort((a, b) => a.firstName.localeCompare(b.firstName) || a.lastName.localeCompare(b.lastName));
+
+  const classes = classesRes.data ?? [];
+  const years = yearsRes.data ?? [];
   const classOptions = classes.map((item) => ({
     id: item.id,
     name: item.name,
@@ -127,7 +129,7 @@ export default async function StudentsPage({
               </thead>
               <tbody>
                 {students.map((student) => {
-                  const fee = student.feeRecords[0];
+                  const fee = (student.feeRecords ?? []).find((record) => record.month === month && record.year === year);
                   return (
                     <tr key={student.id}>
                       <td>

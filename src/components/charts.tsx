@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -19,6 +20,24 @@ export function FinanceCharts({
 }: {
   data: Array<{ label: string; income: number; expenses: number; fees: number }>;
 }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    setReady(true);
+  }, []);
+
+  if (!ready) {
+    return (
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div className="h-72">
+          <p className="mb-3 text-sm font-semibold text-navy">Monthly income vs expenses</p>
+        </div>
+        <div className="h-72">
+          <p className="mb-3 text-sm font-semibold text-navy">Fee collection</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-4 xl:grid-cols-2">
       <div className="h-72">

@@ -1,8 +1,7 @@
-import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { prisma } from "@/lib/db";
-import { formatPKR } from "@/lib/utils";
+import { db } from "@/lib/db";
+import { formatDate, formatPKR } from "@/lib/utils";
 import { PageHeader, EmptyState, Input, Select, ViewOnlyBadge } from "@/components/ui";
 import { AddExpenseButton, VoidButton } from "@/components/forms";
 import { EXPENSE_CATEGORY_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/constants";
@@ -14,25 +13,18 @@ export default async function ExpensesPage({
 }) {
   const user = await requirePermission("finance.view");
   const params = await searchParams;
-  const where: Prisma.ExpenseTransactionWhereInput = {
-    voidedAt: null,
-    ...(params.q
-      ? {
-          OR: [
-            { expenseId: { contains: params.q } },
-            { paidTo: { contains: params.q } },
-            { description: { contains: params.q } },
-            { referenceNumber: { contains: params.q } },
-          ],
-        }
-      : {}),
-    ...(params.category ? { category: params.category as never } : {}),
-    ...(params.paymentMethod ? { paymentMethod: params.paymentMethod as never } : {}),
-  };
 
-  const rows = await prisma.expenseTransaction.findMany({
-    where,
-    orderBy: { date: "desc" },
+  let expenseQuery = db().from("ExpenseTransaction").select("*").is("voidedAt", null).order("date", { ascending: false });
+  if (params.category) expenseQuery = expenseQuery.eq("category", params.category as never);
+  if (params.paymentMethod) expenseQuery = expenseQuery.eq("paymentMethod", params.paymentMethod as never);
+  const rowsRes = await expenseQuery;
+  if (rowsRes.error) throw rowsRes.error;
+
+  const q = params.q?.trim().toLowerCase();
+  const rows = (rowsRes.data ?? []).filter((row) => {
+    if (!q) return true;
+    const haystack = [row.expenseId, row.paidTo, row.description, row.referenceNumber].filter(Boolean).join(" ").toLowerCase();
+    return haystack.includes(q);
   });
 
   return (
@@ -77,7 +69,7 @@ export default async function ExpensesPage({
                 {rows.map((row) => (
                   <tr key={row.id}>
                     <td>{row.expenseId}</td>
-                    <td>{row.date.toLocaleDateString()}</td>
+                    <td>{formatDate(row.date)}</td>
                     <td>{EXPENSE_CATEGORY_LABELS[row.category]}</td>
                     <td>
                       {row.paidTo}

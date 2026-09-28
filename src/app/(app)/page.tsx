@@ -12,7 +12,7 @@ import {
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { getDashboardData } from "@/lib/queries";
-import { formatPKR, fullName, monthLabel } from "@/lib/utils";
+import { formatDate, formatPKR, fullName, monthLabel } from "@/lib/utils";
 import { Card, PageHeader, StatCard } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
 import { FinanceCharts } from "@/components/charts";
@@ -76,7 +76,7 @@ export default async function DashboardPage() {
               `${payment.student.class.name} ${payment.student.class.program.name}`,
               formatPKR(payment.amount),
               PAYMENT_METHOD_LABELS[payment.paymentMethod],
-              payment.paymentDate.toLocaleDateString(),
+              formatDate(payment.paymentDate),
             ])}
             headers={["Student", "Class", "Amount", "Method", "Date"]}
           />
@@ -121,7 +121,7 @@ export default async function DashboardPage() {
               fullName(student.firstName, student.lastName),
               `${student.class.name} ${student.class.program.name}`,
               STUDENT_LABEL(student.studentType),
-              student.createdAt.toLocaleDateString(),
+              formatDate(student.createdAt),
             ])}
           />
         </Card>
@@ -133,7 +133,7 @@ export default async function DashboardPage() {
               fullName(staff.firstName, staff.lastName),
               staff.qualification,
               staff.employmentStatus.replace("_", " "),
-              staff.createdAt.toLocaleDateString(),
+              formatDate(staff.createdAt),
             ])}
           />
         </Card>

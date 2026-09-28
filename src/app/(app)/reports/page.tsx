@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { ensureCurrentMonthFees } from "@/lib/finance";
-import { currentMonthYear, formatPKR, fullName } from "@/lib/utils";
+import { currentMonthYear, formatDate, formatPKR, fullName } from "@/lib/utils";
 import { Card, PageHeader } from "@/components/ui";
-import { STUDENT_TYPE_LABELS, INCOME_CATEGORY_LABELS, EXPENSE_CATEGORY_LABELS } from "@/lib/constants";
+import { STUDENT_TYPE_LABELS, INCOME_CATEGORY_LABELS, EXPENSE_CATEGORY_LABELS, FACULTY_TYPE_LABELS } from "@/lib/constants";
 
 const REPORTS: Array<{ type: string; title: string; group: string; analytics?: boolean }> = [
   { type: "students", title: "Student list", group: "Student reports" },
@@ -79,11 +79,16 @@ async function ReportPreview({ type }: { type: string }) {
   const { month, year } = currentMonthYear();
   if (["students", "scholarship", "need-based", "self", "class-students"].includes(type)) {
     const studentType = type === "scholarship" ? "SCHOLARSHIP" : type === "need-based" ? "NEED_BASED" : type === "self" ? "SELF" : undefined;
-    const students = await prisma.student.findMany({
-      where: { deletedAt: null, ...(studentType ? { studentType } : {}) },
-      include: { class: { include: { program: true } } },
-      orderBy: [{ class: { name: "asc" } }, { firstName: "asc" }],
-    });
+    const studentsRes = await db()
+      .from("Student")
+      .select("*, class:Class(*, program:Program(*))")
+      .is("deletedAt", null);
+    if (studentsRes.error) throw studentsRes.error;
+    let students = studentsRes.data ?? [];
+    if (studentType) students = students.filter((student) => student.studentType === studentType);
+    students = students.sort(
+      (a, b) => (a.class?.name ?? "").localeCompare(b.class?.name ?? "") || a.firstName.localeCompare(b.firstName),
+    );
     return (
       <div className="table-wrap">
         <table>
@@ -115,13 +120,12 @@ async function ReportPreview({ type }: { type: string }) {
   }
 
   if (["staff", "assignments", "joining"].includes(type)) {
-    const staff = await prisma.staff.findMany({
-      include: {
-        subjects: { include: { subject: true } },
-        assignments: { include: { class: { include: { program: true } } } },
-      },
-      orderBy: { dateOfJoining: "asc" },
-    });
+    const staffRes = await db()
+      .from("Staff")
+      .select("*, subjects:StaffSubject(*, subject:Subject(*)), assignments:StaffAssignment(*, class:Class(*, program:Program(*)))")
+      .order("dateOfJoining", { ascending: true });
+    if (staffRes.error) throw staffRes.error;
+    const staff = staffRes.data ?? [];
     return (
       <div className="table-wrap">
         <table>
@@ -129,6 +133,7 @@ async function ReportPreview({ type }: { type: string }) {
             <tr>
               <th>Staff ID</th>
               <th>Name</th>
+              <th>Faculty</th>
               <th>Qualification</th>
               <th>Joined</th>
               <th>Subjects</th>
@@ -140,8 +145,9 @@ async function ReportPreview({ type }: { type: string }) {
               <tr key={member.id}>
                 <td>{member.staffId}</td>
                 <td>{fullName(member.firstName, member.lastName)}</td>
+                <td>{FACULTY_TYPE_LABELS[member.facultyType ?? "PERMANENT"]}</td>
                 <td>{member.qualification}</td>
-                <td>{member.dateOfJoining.toLocaleDateString()}</td>
+                <td>{formatDate(member.dateOfJoining)}</td>
                 <td>{member.subjects.map((row) => row.subject.name).join(", ")}</td>
                 <td>{member.assignments.map((row) => `${row.class.name} ${row.class.program.name}`).join(", ")}</td>
               </tr>
@@ -153,10 +159,13 @@ async function ReportPreview({ type }: { type: string }) {
   }
 
   if (type === "outstanding" || type === "class-fees" || type === "fee-collection") {
-    const records = await prisma.feeRecord.findMany({
-      where: { month, year },
-      include: { student: { include: { class: { include: { program: true } } } } },
-    });
+    const recordsRes = await db()
+      .from("FeeRecord")
+      .select("*, student:Student(*, class:Class(*, program:Program(*)))")
+      .eq("month", month)
+      .eq("year", year);
+    if (recordsRes.error) throw recordsRes.error;
+    const records = recordsRes.data ?? [];
     return (
       <div className="table-wrap">
         <table>
@@ -190,11 +199,13 @@ async function ReportPreview({ type }: { type: string }) {
   }
 
   if (type === "payment-history") {
-    const payments = await prisma.feePayment.findMany({
-      where: { voidedAt: null },
-      include: { student: { include: { class: { include: { program: true } } } } },
-      orderBy: { paymentDate: "desc" },
-    });
+    const paymentsRes = await db()
+      .from("FeePayment")
+      .select("*, student:Student(*, class:Class(*, program:Program(*)))")
+      .is("voidedAt", null)
+      .order("paymentDate", { ascending: false });
+    if (paymentsRes.error) throw paymentsRes.error;
+    const payments = paymentsRes.data ?? [];
     return (
       <div className="table-wrap">
         <table>
@@ -210,7 +221,7 @@ async function ReportPreview({ type }: { type: string }) {
           <tbody>
             {payments.map((payment) => (
               <tr key={payment.id}>
-                <td>{payment.paymentDate.toLocaleDateString()}</td>
+                <td>{formatDate(payment.paymentDate)}</td>
                 <td>{fullName(payment.student.firstName, payment.student.lastName)}</td>
                 <td>{payment.student.class.name} {payment.student.class.program.name}</td>
                 <td>{formatPKR(payment.amount)}</td>
@@ -223,8 +234,14 @@ async function ReportPreview({ type }: { type: string }) {
     );
   }
 
-  const income = await prisma.incomeTransaction.findMany({ where: { voidedAt: null }, orderBy: { date: "desc" } });
-  const expenses = await prisma.expenseTransaction.findMany({ where: { voidedAt: null }, orderBy: { date: "desc" } });
+  const [incomeRes, expensesRes] = await Promise.all([
+    db().from("IncomeTransaction").select("*").is("voidedAt", null).order("date", { ascending: false }),
+    db().from("ExpenseTransaction").select("*").is("voidedAt", null).order("date", { ascending: false }),
+  ]);
+  if (incomeRes.error) throw incomeRes.error;
+  if (expensesRes.error) throw expensesRes.error;
+  const income = incomeRes.data ?? [];
+  const expenses = expensesRes.data ?? [];
   const totalIncome = income.reduce((sum, row) => sum + row.amount, 0);
   const totalExpenses = expenses.reduce((sum, row) => sum + row.amount, 0);
 
@@ -249,7 +266,7 @@ async function ReportPreview({ type }: { type: string }) {
               <tr key={row.id}>
                 <td>Income</td>
                 <td>{row.incomeId}</td>
-                <td>{row.date.toLocaleDateString()}</td>
+                <td>{formatDate(row.date)}</td>
                 <td>{INCOME_CATEGORY_LABELS[row.category]}</td>
                 <td>{formatPKR(row.amount)}</td>
               </tr>
@@ -258,7 +275,7 @@ async function ReportPreview({ type }: { type: string }) {
               <tr key={row.id}>
                 <td>Expense</td>
                 <td>{row.expenseId}</td>
-                <td>{row.date.toLocaleDateString()}</td>
+                <td>{formatDate(row.date)}</td>
                 <td>{EXPENSE_CATEGORY_LABELS[row.category]}</td>
                 <td>{formatPKR(row.amount)}</td>
               </tr>

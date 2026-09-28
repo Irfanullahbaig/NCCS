@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { getFinanceDashboard } from "@/lib/queries";
-import { formatPKR, parseDateInput } from "@/lib/utils";
+import { formatDate, formatPKR, parseDateInput } from "@/lib/utils";
 import { Card, PageHeader, StatCard, Select, Input, ViewOnlyBadge } from "@/components/ui";
 import { FinanceCharts } from "@/components/charts";
 import { AddExpenseButton, AddIncomeButton } from "@/components/forms";
@@ -17,7 +17,7 @@ export default async function FinanceDashboardPage({
 }) {
   const user = await requirePermission("finance.analytics");
   const params = await searchParams;
-  const [data, classes, programs, years, students] = await Promise.all([
+  const [data, classesRes, programsRes, yearsRes, studentsRes] = await Promise.all([
     getFinanceDashboard({
       from: params.from ? parseDateInput(params.from) : undefined,
       to: params.to ? parseDateInput(params.to) : undefined,
@@ -27,15 +27,23 @@ export default async function FinanceDashboardPage({
       category: params.category,
       paymentMethod: params.paymentMethod,
     }),
-    prisma.class.findMany({ include: { program: true }, orderBy: { name: "asc" } }),
-    prisma.program.findMany({ orderBy: { name: "asc" } }),
-    prisma.academicYear.findMany({ orderBy: { startDate: "desc" } }),
-    prisma.student.findMany({
-      where: { deletedAt: null, status: "ACTIVE" },
-      include: { class: { include: { program: true } } },
-      orderBy: { firstName: "asc" },
-    }),
+    db().from("Class").select("*, program:Program(*)").order("name", { ascending: true }),
+    db().from("Program").select("*").order("name", { ascending: true }),
+    db().from("AcademicYear").select("*").order("startDate", { ascending: false }),
+    db()
+      .from("Student")
+      .select("*, class:Class(*, program:Program(*))")
+      .is("deletedAt", null)
+      .eq("status", "ACTIVE")
+      .order("firstName", { ascending: true }),
   ]);
+  for (const result of [classesRes, programsRes, yearsRes, studentsRes]) {
+    if (result.error) throw result.error;
+  }
+  const classes = classesRes.data ?? [];
+  const programs = programsRes.data ?? [];
+  const years = yearsRes.data ?? [];
+  const students = studentsRes.data ?? [];
 
   const classOptions = classes.map((item) => ({
     id: item.id,
@@ -123,7 +131,7 @@ export default async function FinanceDashboardPage({
               {data.recentIncome.map((row) => (
                 <tr key={row.id}>
                   <td>{row.incomeId}</td>
-                  <td>{row.date.toLocaleDateString()}</td>
+                  <td>{formatDate(row.date)}</td>
                   <td>{INCOME_CATEGORY_LABELS[row.category]}</td>
                   <td>{row.source || (row.student ? fullName(row.student.firstName, row.student.lastName) : "—")}</td>
                   <td>{formatPKR(row.amount)}</td>

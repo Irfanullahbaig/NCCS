@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { Role } from "@prisma/client";
+import { Role } from "@/lib/enums";
 import { hashPassword, requirePermission } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { db, newId, nowIso } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 
 function fail(error: string) {
@@ -19,25 +19,33 @@ export async function createUserAction(formData: FormData) {
   if (!name || !email || !password || !role) return fail("All user fields are required");
   if (password.length < 8) return fail("Password must be at least 8 characters");
 
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) return fail("A user with this email already exists");
+  const existing = await db().from("User").select("id").eq("email", email).maybeSingle();
+  if (existing.error) throw existing.error;
+  if (existing.data) return fail("A user with this email already exists");
 
-  const user = await prisma.user.create({
-    data: {
+  const stamp = nowIso();
+  const user = await db()
+    .from("User")
+    .insert({
+      id: newId(),
       name,
       email,
       role,
       passwordHash: await hashPassword(password),
+      createdAt: stamp,
+      updatedAt: stamp,
       createdById: actor.id,
       updatedById: actor.id,
-    },
-  });
+    })
+    .select("id")
+    .single();
+  if (user.error) throw user.error;
 
   await writeAudit({
     userId: actor.id,
     action: "USER_CREATED",
     entityType: "User",
-    entityId: user.id,
+    entityId: user.data.id,
     details: { email, role },
   });
 
@@ -55,16 +63,18 @@ export async function updateUserAction(formData: FormData) {
 
   if (id === actor.id && !isActive) return fail("You cannot deactivate your own account");
 
-  await prisma.user.update({
-    where: { id },
-    data: {
+  const updated = await db()
+    .from("User")
+    .update({
       name,
       role,
       isActive,
+      updatedAt: nowIso(),
       updatedById: actor.id,
       ...(password ? { passwordHash: await hashPassword(password) } : {}),
-    },
-  });
+    })
+    .eq("id", id);
+  if (updated.error) throw updated.error;
 
   await writeAudit({
     userId: actor.id,
@@ -88,11 +98,15 @@ export async function saveSettingsAction(formData: FormData) {
   ];
 
   for (const [key, value] of entries) {
-    await prisma.setting.upsert({
-      where: { key },
-      create: { key, value },
-      update: { value },
-    });
+    const existing = await db().from("Setting").select("id").eq("key", key).maybeSingle();
+    if (existing.error) throw existing.error;
+    if (existing.data) {
+      const updated = await db().from("Setting").update({ value }).eq("key", key);
+      if (updated.error) throw updated.error;
+    } else {
+      const inserted = await db().from("Setting").insert({ id: newId(), key, value });
+      if (inserted.error) throw inserted.error;
+    }
   }
 
   await writeAudit({

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { ExpenseCategory, IncomeCategory, PaymentMethod } from "@prisma/client";
+import { ExpenseCategory, IncomeCategory, PaymentMethod } from "@/lib/enums";
 import { requirePermission } from "@/lib/auth";
 import { parseDateInput } from "@/lib/utils";
 import {

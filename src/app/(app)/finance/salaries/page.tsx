@@ -2,9 +2,9 @@ import Link from "next/link";
 import { AlertCircle, Banknote, CircleDollarSign, Users } from "lucide-react";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { ensureCurrentMonthSalaries } from "@/lib/salary";
-import { currentMonthYear, formatPKR, fullName, monthLabel } from "@/lib/utils";
+import { currentMonthYear, formatDate, formatPKR, fullName, monthLabel } from "@/lib/utils";
 import { PageHeader, EmptyState, ViewOnlyBadge, StatCard } from "@/components/ui";
 import { FeeBadge } from "@/components/badges";
 import { RecordSalaryButton } from "@/components/forms";
@@ -13,14 +13,19 @@ export default async function SalariesPage() {
   const user = await requirePermission("salaries.view");
   await ensureCurrentMonthSalaries(user.id);
   const { month, year } = currentMonthYear();
-  const records = await prisma.salaryRecord.findMany({
-    where: { month, year },
-    include: {
-      staff: true,
-      payments: { where: { voidedAt: null }, orderBy: { paymentDate: "desc" } },
-    },
-    orderBy: { remainingAmount: "desc" },
-  });
+  const recordsRes = await db()
+    .from("SalaryRecord")
+    .select("*, staff:Staff(*), payments:SalaryPayment(*)")
+    .eq("month", month)
+    .eq("year", year)
+    .order("remainingAmount", { ascending: false });
+  if (recordsRes.error) throw recordsRes.error;
+  const records = (recordsRes.data ?? []).map((record) => ({
+    ...record,
+    payments: (record.payments ?? [])
+      .filter((payment) => !payment.voidedAt)
+      .sort((a, b) => String(b.paymentDate).localeCompare(String(a.paymentDate))),
+  }));
 
   const teachers = records.map((record) => ({
     id: record.staff.id,
@@ -72,7 +77,7 @@ export default async function SalariesPage() {
                     <td>{formatPKR(record.expectedAmount)}</td>
                     <td>{formatPKR(record.paidAmount)}</td>
                     <td>{formatPKR(record.remainingAmount)}</td>
-                    <td>{record.payments[0] ? record.payments[0].paymentDate.toLocaleDateString() : "—"}</td>
+                    <td>{record.payments[0] ? formatDate(record.payments[0].paymentDate) : "—"}</td>
                     <td><FeeBadge status={record.status} /></td>
                   </tr>
                 ))}
@@ -108,7 +113,7 @@ export default async function SalariesPage() {
                     <tr key={payment.id}>
                       <td>{fullName(record.staff.firstName, record.staff.lastName)}</td>
                       <td>{formatPKR(payment.amount)}</td>
-                      <td>{payment.paymentDate.toLocaleDateString()}</td>
+                      <td>{formatDate(payment.paymentDate)}</td>
                       <td>{payment.paymentMethod.replace("_", " ")}</td>
                       <td>{payment.referenceNumber || "—"}</td>
                     </tr>

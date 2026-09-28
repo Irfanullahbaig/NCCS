@@ -1,6 +1,6 @@
 import { AppShell } from "@/components/layout";
 import { requireUser } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { SCHOOL_NAME } from "@/lib/constants";
 import { can } from "@/lib/permissions";
 
@@ -10,8 +10,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const user = await requireUser();
   let schoolName = SCHOOL_NAME;
   try {
-    const setting = await prisma.setting.findUnique({ where: { key: "schoolName" } });
-    schoolName = setting?.value || SCHOOL_NAME;
+    const setting = await db().from("Setting").select("value").eq("key", "schoolName").maybeSingle();
+    if (setting.error) throw setting.error;
+    schoolName = setting.data?.value || SCHOOL_NAME;
   } catch (error) {
     console.error("Unable to load school settings", error);
   }
@@ -19,8 +20,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     void import("@/lib/backup").then(({ ensureWeeklyBackup }) => ensureWeeklyBackup()).catch(() => undefined);
   }
   return (
-    <AppShell user={user} schoolName={schoolName}>
-      {children}
-    </AppShell>
+    <div className="min-h-screen bg-surface">
+      <AppShell user={user} schoolName={schoolName} />
+      <div className="lg:pl-72">
+        <main className="px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+      </div>
+    </div>
   );
 }

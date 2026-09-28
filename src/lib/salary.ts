@@ -1,5 +1,5 @@
-import type { PaymentMethod, Prisma, SalaryStatus } from "@prisma/client";
-import { prisma } from "@/lib/db";
+import type { PaymentMethod, SalaryStatus } from "@/lib/enums";
+import { db, newId, nowIso } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { nextExpenseId } from "@/lib/ids";
 import { currentMonthYear, fullName } from "@/lib/utils";
@@ -11,27 +11,33 @@ function deriveSalaryStatus(expected: number, paid: number): { remaining: number
   return { remaining, status: "PENDING" };
 }
 
-export async function recalculateSalaryRecord(
-  salaryRecordId: string,
-  db: Prisma.TransactionClient | typeof prisma = prisma,
-) {
-  const record = await db.salaryRecord.findUnique({
-    where: { id: salaryRecordId },
-    include: { payments: { where: { voidedAt: null } } },
-  });
-  if (!record) throw new Error("Salary record not found");
+export async function recalculateSalaryRecord(salaryRecordId: string) {
+  const record = await db().from("SalaryRecord").select("*").eq("id", salaryRecordId).maybeSingle();
+  if (record.error) throw record.error;
+  if (!record.data) throw new Error("Salary record not found");
 
-  const paid = record.payments.reduce((sum, payment) => sum + payment.amount, 0);
-  const derived = deriveSalaryStatus(record.expectedAmount, paid);
+  const payments = await db()
+    .from("SalaryPayment")
+    .select("amount")
+    .eq("salaryRecordId", salaryRecordId)
+    .is("voidedAt", null);
+  if (payments.error) throw payments.error;
 
-  return db.salaryRecord.update({
-    where: { id: salaryRecordId },
-    data: {
+  const paid = (payments.data ?? []).reduce((sum, payment) => sum + payment.amount, 0);
+  const derived = deriveSalaryStatus(record.data.expectedAmount, paid);
+  const updated = await db()
+    .from("SalaryRecord")
+    .update({
       paidAmount: paid,
       remainingAmount: derived.remaining,
       status: derived.status,
-    },
-  });
+      updatedAt: nowIso(),
+    })
+    .eq("id", salaryRecordId)
+    .select()
+    .single();
+  if (updated.error) throw updated.error;
+  return updated.data;
 }
 
 export async function ensureSalaryRecord(input: {
@@ -39,60 +45,75 @@ export async function ensureSalaryRecord(input: {
   month?: number;
   year?: number;
   userId?: string | null;
-  db?: Prisma.TransactionClient | typeof prisma;
 }) {
-  const db = input.db ?? prisma;
-  const { month, year } = input.month && input.year
-    ? { month: input.month, year: input.year }
-    : currentMonthYear();
+  const { month, year } = input.month && input.year ? { month: input.month, year: input.year } : currentMonthYear();
+  const staff = await db().from("Staff").select("*").eq("id", input.staffId).maybeSingle();
+  if (staff.error) throw staff.error;
+  if (!staff.data) throw new Error("Teacher not found");
 
-  const staff = await db.staff.findUnique({ where: { id: input.staffId } });
-  if (!staff) throw new Error("Teacher not found");
-
-  const existing = await db.salaryRecord.findUnique({
-    where: { staffId_year_month: { staffId: input.staffId, year, month } },
-  });
-  if (existing) {
-    if (existing.paidAmount === 0 && existing.expectedAmount !== staff.salaryAmount) {
-      const derived = deriveSalaryStatus(staff.salaryAmount, 0);
-      return db.salaryRecord.update({
-        where: { id: existing.id },
-        data: {
-          expectedAmount: staff.salaryAmount,
+  const existing = await db()
+    .from("SalaryRecord")
+    .select("*")
+    .eq("staffId", input.staffId)
+    .eq("year", year)
+    .eq("month", month)
+    .maybeSingle();
+  if (existing.error) throw existing.error;
+  if (existing.data) {
+    if (existing.data.paidAmount === 0 && existing.data.expectedAmount !== staff.data.salaryAmount) {
+      const derived = deriveSalaryStatus(staff.data.salaryAmount, 0);
+      const updated = await db()
+        .from("SalaryRecord")
+        .update({
+          expectedAmount: staff.data.salaryAmount,
           remainingAmount: derived.remaining,
           status: derived.status,
+          updatedAt: nowIso(),
           updatedById: input.userId ?? null,
-        },
-      });
+        })
+        .eq("id", existing.data.id)
+        .select()
+        .single();
+      if (updated.error) throw updated.error;
+      return updated.data;
     }
-    return existing;
+    return existing.data;
   }
 
-  const expected = Math.max(0, staff.salaryAmount);
+  const expected = Math.max(0, staff.data.salaryAmount);
   const derived = deriveSalaryStatus(expected, 0);
-
-  return db.salaryRecord.create({
-    data: {
-      staffId: staff.id,
+  const stamp = nowIso();
+  const created = await db()
+    .from("SalaryRecord")
+    .insert({
+      id: newId(),
+      staffId: staff.data.id,
       month,
       year,
       expectedAmount: expected,
       paidAmount: 0,
       remainingAmount: derived.remaining,
       status: derived.status,
+      createdAt: stamp,
+      updatedAt: stamp,
       createdById: input.userId ?? null,
       updatedById: input.userId ?? null,
-    },
-  });
+    })
+    .select()
+    .single();
+  if (created.error) throw created.error;
+  return created.data;
 }
 
 export async function ensureCurrentMonthSalaries(userId?: string | null) {
   const { month, year } = currentMonthYear();
-  const staff = await prisma.staff.findMany({
-    where: { employmentStatus: { in: ["ACTIVE", "ON_LEAVE"] }, salaryAmount: { gt: 0 } },
-    select: { id: true },
-  });
-  for (const member of staff) {
+  const staff = await db()
+    .from("Staff")
+    .select("id")
+    .in("employmentStatus", ["ACTIVE", "ON_LEAVE"])
+    .gt("salaryAmount", 0);
+  if (staff.error) throw staff.error;
+  for (const member of staff.data ?? []) {
     await ensureSalaryRecord({ staffId: member.id, month, year, userId });
   }
 }
@@ -111,68 +132,77 @@ export async function recordSalaryPayment(input: {
   const amount = Math.round(input.amount);
   if (amount <= 0) throw new Error("Paid amount must be greater than zero");
 
-  return prisma.$transaction(async (tx) => {
-    const staff = await tx.staff.findUnique({ where: { id: input.staffId } });
-    if (!staff) throw new Error("Teacher not found");
-    if (staff.salaryAmount <= 0) throw new Error("Set the teacher's monthly salary before recording a payment");
+  const staff = await db().from("Staff").select("*").eq("id", input.staffId).maybeSingle();
+  if (staff.error) throw staff.error;
+  if (!staff.data) throw new Error("Teacher not found");
+  if (staff.data.salaryAmount <= 0) throw new Error("Set the teacher's monthly salary before recording a payment");
 
-    const record = await ensureSalaryRecord({
-      staffId: staff.id,
-      month: input.month,
-      year: input.year,
-      userId: input.userId,
-      db: tx,
-    });
-
-    const live = await tx.salaryRecord.findUniqueOrThrow({ where: { id: record.id } });
-    if (amount > live.remainingAmount) {
-      throw new Error(`Payment exceeds remaining salary of Rs. ${live.remainingAmount.toLocaleString("en-PK")}`);
-    }
-
-    const name = fullName(staff.firstName, staff.lastName);
-    const expense = await tx.expenseTransaction.create({
-      data: {
-        expenseId: await nextExpenseId(input.paymentDate, tx),
-        date: input.paymentDate,
-        amount,
-        category: "SALARIES",
-        paidTo: name,
-        paymentMethod: input.paymentMethod,
-        referenceNumber: input.referenceNumber ?? null,
-        description: `Salary ${live.month}/${live.year} — ${name}`,
-        notes: input.notes ?? null,
-        createdById: input.userId,
-        updatedById: input.userId,
-      },
-    });
-
-    const payment = await tx.salaryPayment.create({
-      data: {
-        salaryRecordId: live.id,
-        staffId: staff.id,
-        amount,
-        paymentDate: input.paymentDate,
-        paymentMethod: input.paymentMethod,
-        referenceNumber: input.referenceNumber ?? null,
-        notes: input.notes ?? null,
-        expenseTransactionId: expense.id,
-        createdById: input.userId,
-        updatedById: input.userId,
-      },
-    });
-
-    await recalculateSalaryRecord(live.id, tx);
-    return { payment, expense, salaryRecordId: live.id };
-  }).then(async (result) => {
-    await writeAudit({
-      userId: input.userId,
-      action: "SALARY_PAYMENT_RECORDED",
-      entityType: "SalaryPayment",
-      entityId: result.payment.id,
-      details: { staffId: input.staffId, amount, expenseId: result.expense.expenseId },
-    });
-    return result;
+  const record = await ensureSalaryRecord({
+    staffId: staff.data.id,
+    month: input.month,
+    year: input.year,
+    userId: input.userId,
   });
+  const live = await db().from("SalaryRecord").select("*").eq("id", record.id).single();
+  if (live.error) throw live.error;
+  if (amount > live.data.remainingAmount) {
+    throw new Error(`Payment exceeds remaining salary of Rs. ${live.data.remainingAmount.toLocaleString("en-PK")}`);
+  }
+
+  const name = fullName(staff.data.firstName, staff.data.lastName);
+  const stamp = nowIso();
+  const expense = await db()
+    .from("ExpenseTransaction")
+    .insert({
+      id: newId(),
+      expenseId: await nextExpenseId(input.paymentDate),
+      date: nowIso(input.paymentDate),
+      amount,
+      category: "SALARIES",
+      paidTo: name,
+      paymentMethod: input.paymentMethod,
+      referenceNumber: input.referenceNumber ?? null,
+      description: `Salary ${live.data.month}/${live.data.year} — ${name}`,
+      notes: input.notes ?? null,
+      createdAt: stamp,
+      updatedAt: stamp,
+      createdById: input.userId,
+      updatedById: input.userId,
+    })
+    .select()
+    .single();
+  if (expense.error) throw expense.error;
+
+  const payment = await db()
+    .from("SalaryPayment")
+    .insert({
+      id: newId(),
+      salaryRecordId: live.data.id,
+      staffId: staff.data.id,
+      amount,
+      paymentDate: nowIso(input.paymentDate),
+      paymentMethod: input.paymentMethod,
+      referenceNumber: input.referenceNumber ?? null,
+      notes: input.notes ?? null,
+      expenseTransactionId: expense.data.id,
+      createdAt: stamp,
+      updatedAt: stamp,
+      createdById: input.userId,
+      updatedById: input.userId,
+    })
+    .select()
+    .single();
+  if (payment.error) throw payment.error;
+
+  await recalculateSalaryRecord(live.data.id);
+  await writeAudit({
+    userId: input.userId,
+    action: "SALARY_PAYMENT_RECORDED",
+    entityType: "SalaryPayment",
+    entityId: payment.data.id,
+    details: { staffId: input.staffId, amount, expenseId: expense.data.expenseId },
+  });
+  return { payment: payment.data, expense: expense.data, salaryRecordId: live.data.id };
 }
 
 export async function updateSalaryPayment(input: {
@@ -187,87 +217,87 @@ export async function updateSalaryPayment(input: {
   const amount = Math.round(input.amount);
   if (amount <= 0) throw new Error("Paid amount must be greater than zero");
 
-  return prisma.$transaction(async (tx) => {
-    const payment = await tx.salaryPayment.findUnique({
-      where: { id: input.paymentId },
-      include: { salaryRecord: true },
-    });
-    if (!payment || payment.voidedAt) throw new Error("Salary payment not found");
+  const payment = await db()
+    .from("SalaryPayment")
+    .select("*, salaryRecord:SalaryRecord(*)")
+    .eq("id", input.paymentId)
+    .maybeSingle();
+  if (payment.error) throw payment.error;
+  if (!payment.data || payment.data.voidedAt || !payment.data.salaryRecord) {
+    throw new Error("Salary payment not found");
+  }
 
-    const otherPaid = payment.salaryRecord.paidAmount - payment.amount;
-    const remainingIfRemoved = Math.max(0, payment.salaryRecord.expectedAmount - otherPaid);
-    if (amount > remainingIfRemoved) {
-      throw new Error(`Payment exceeds remaining salary of Rs. ${remainingIfRemoved.toLocaleString("en-PK")}`);
-    }
+  const otherPaid = payment.data.salaryRecord.paidAmount - payment.data.amount;
+  const remainingIfRemoved = Math.max(0, payment.data.salaryRecord.expectedAmount - otherPaid);
+  if (amount > remainingIfRemoved) {
+    throw new Error(`Payment exceeds remaining salary of Rs. ${remainingIfRemoved.toLocaleString("en-PK")}`);
+  }
 
-    await tx.salaryPayment.update({
-      where: { id: payment.id },
-      data: {
-        amount,
-        paymentDate: input.paymentDate,
-        paymentMethod: input.paymentMethod,
-        referenceNumber: input.referenceNumber ?? null,
-        notes: input.notes ?? null,
-        updatedById: input.userId,
-      },
-    });
-    await tx.expenseTransaction.update({
-      where: { id: payment.expenseTransactionId },
-      data: {
-        amount,
-        date: input.paymentDate,
-        paymentMethod: input.paymentMethod,
-        referenceNumber: input.referenceNumber ?? null,
-        notes: input.notes ?? null,
-        updatedById: input.userId,
-      },
-    });
-    await recalculateSalaryRecord(payment.salaryRecordId, tx);
-    return payment.id;
-  }).then(async (id) => {
-    await writeAudit({
-      userId: input.userId,
-      action: "SALARY_PAYMENT_EDITED",
-      entityType: "SalaryPayment",
-      entityId: id,
-      details: { amount },
-    });
-    return { ok: true as const, id };
+  const stamp = nowIso();
+  const payUpdate = await db()
+    .from("SalaryPayment")
+    .update({
+      amount,
+      paymentDate: nowIso(input.paymentDate),
+      paymentMethod: input.paymentMethod,
+      referenceNumber: input.referenceNumber ?? null,
+      notes: input.notes ?? null,
+      updatedAt: stamp,
+      updatedById: input.userId,
+    })
+    .eq("id", payment.data.id);
+  if (payUpdate.error) throw payUpdate.error;
+  const expenseUpdate = await db()
+    .from("ExpenseTransaction")
+    .update({
+      amount,
+      date: nowIso(input.paymentDate),
+      paymentMethod: input.paymentMethod,
+      referenceNumber: input.referenceNumber ?? null,
+      notes: input.notes ?? null,
+      updatedAt: stamp,
+      updatedById: input.userId,
+    })
+    .eq("id", payment.data.expenseTransactionId);
+  if (expenseUpdate.error) throw expenseUpdate.error;
+  await recalculateSalaryRecord(payment.data.salaryRecordId);
+  await writeAudit({
+    userId: input.userId,
+    action: "SALARY_PAYMENT_EDITED",
+    entityType: "SalaryPayment",
+    entityId: payment.data.id,
+    details: { amount },
   });
+  return { ok: true as const, id: payment.data.id };
 }
 
 export async function voidSalaryPayment(input: { paymentId: string; reason: string; userId: string }) {
-  const payment = await prisma.salaryPayment.findUnique({ where: { id: input.paymentId } });
-  if (!payment) throw new Error("Salary payment not found");
-  if (payment.voidedAt) throw new Error("Payment is already voided");
+  const payment = await db().from("SalaryPayment").select("*").eq("id", input.paymentId).maybeSingle();
+  if (payment.error) throw payment.error;
+  if (!payment.data) throw new Error("Salary payment not found");
+  if (payment.data.voidedAt) throw new Error("Payment is already voided");
 
-  await prisma.$transaction(async (tx) => {
-    await tx.salaryPayment.update({
-      where: { id: payment.id },
-      data: {
-        voidedAt: new Date(),
-        voidedById: input.userId,
-        voidReason: input.reason,
-        updatedById: input.userId,
-      },
-    });
-    await tx.expenseTransaction.update({
-      where: { id: payment.expenseTransactionId },
-      data: {
-        voidedAt: new Date(),
-        voidedById: input.userId,
-        voidReason: input.reason,
-        updatedById: input.userId,
-      },
-    });
-    await recalculateSalaryRecord(payment.salaryRecordId, tx);
-  });
-
+  const stamp = nowIso();
+  const voidFields = {
+    voidedAt: stamp,
+    voidedById: input.userId,
+    voidReason: input.reason,
+    updatedAt: stamp,
+    updatedById: input.userId,
+  };
+  const payUpdate = await db().from("SalaryPayment").update(voidFields).eq("id", payment.data.id);
+  if (payUpdate.error) throw payUpdate.error;
+  const expenseUpdate = await db()
+    .from("ExpenseTransaction")
+    .update(voidFields)
+    .eq("id", payment.data.expenseTransactionId);
+  if (expenseUpdate.error) throw expenseUpdate.error;
+  await recalculateSalaryRecord(payment.data.salaryRecordId);
   await writeAudit({
     userId: input.userId,
     action: "SALARY_PAYMENT_VOIDED",
     entityType: "SalaryPayment",
-    entityId: payment.id,
+    entityId: payment.data.id,
     details: { reason: input.reason },
   });
 }

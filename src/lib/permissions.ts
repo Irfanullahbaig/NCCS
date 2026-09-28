@@ -1,4 +1,4 @@
-import type { Role } from "@prisma/client";
+import type { Role } from "@/lib/enums";
 
 export type Permission =
   | "dashboard.view"

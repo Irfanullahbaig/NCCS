@@ -1,12 +1,13 @@
-import { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { prisma } from "@/lib/db";
-import { fullName, toDateInput, formatPKR } from "@/lib/utils";
+import { db } from "@/lib/db";
+import { formatDate, fullName, toDateInput, formatPKR } from "@/lib/utils";
 import { PageHeader, EmptyState, Input, Select } from "@/components/ui";
 import { AddStaffButton, EditStaffButton } from "@/components/forms";
-import { EMPLOYMENT_LABELS } from "@/lib/constants";
+import { EMPLOYMENT_LABELS, FACULTY_TYPE_LABELS } from "@/lib/constants";
+
+const staffSelect = "*, subjects:StaffSubject(*, subject:Subject(*)), assignments:StaffAssignment(*, class:Class(*, program:Program(*)))";
 
 export default async function StaffPage({
   searchParams,
@@ -15,36 +16,34 @@ export default async function StaffPage({
 }) {
   const user = await requirePermission("staff.view");
   const params = await searchParams;
-  const where: Prisma.StaffWhereInput = {
-    ...(params.q
-      ? {
-          OR: [
-            { firstName: { contains: params.q } },
-            { lastName: { contains: params.q } },
-            { staffId: { contains: params.q } },
-            { subjects: { some: { subject: { name: { contains: params.q } } } } },
-          ],
-        }
-      : {}),
-    ...(params.gender ? { gender: params.gender as never } : {}),
-    ...(params.employmentStatus ? { employmentStatus: params.employmentStatus as never } : {}),
-    ...(params.qualification ? { qualification: { contains: params.qualification } } : {}),
-    ...(params.joinedFrom ? { dateOfJoining: { gte: new Date(params.joinedFrom) } } : {}),
-  };
 
-  const [staff, subjects, classes] = await Promise.all([
-    prisma.staff.findMany({
-      where,
-      orderBy: { firstName: "asc" },
-      include: {
-        subjects: { include: { subject: true } },
-        assignments: { include: { class: { include: { program: true } } } },
-      },
-    }),
-    prisma.subject.findMany({ orderBy: { name: "asc" } }),
-    prisma.class.findMany({ where: { status: "ACTIVE" }, include: { program: true } }),
+  const [staffRes, subjectsRes, classesRes] = await Promise.all([
+    db().from("Staff").select(staffSelect).order("firstName", { ascending: true }),
+    db().from("Subject").select("*").order("name", { ascending: true }),
+    db().from("Class").select("*, program:Program(*)").eq("status", "ACTIVE"),
   ]);
+  if (staffRes.error) throw staffRes.error;
+  if (subjectsRes.error) throw subjectsRes.error;
+  if (classesRes.error) throw classesRes.error;
 
+  const q = params.q?.trim().toLowerCase();
+  const joinedFrom = params.joinedFrom ? new Date(params.joinedFrom) : null;
+  const staff = (staffRes.data ?? []).filter((member) => {
+    if (q) {
+      const subjectNames = (member.subjects ?? []).map((row) => row.subject?.name).filter(Boolean).join(" ");
+      const haystack = `${member.firstName} ${member.lastName} ${member.staffId} ${subjectNames}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    if (params.gender && member.gender !== params.gender) return false;
+    if (params.facultyType && (member.facultyType ?? "PERMANENT") !== params.facultyType) return false;
+    if (params.employmentStatus && member.employmentStatus !== params.employmentStatus) return false;
+    if (params.qualification && !member.qualification.toLowerCase().includes(params.qualification.toLowerCase())) return false;
+    if (joinedFrom && new Date(member.dateOfJoining) < joinedFrom) return false;
+    return true;
+  });
+
+  const classes = classesRes.data ?? [];
+  const subjects = subjectsRes.data ?? [];
   const classOptions = classes.map((item) => ({
     id: item.id,
     name: item.name,
@@ -60,12 +59,18 @@ export default async function StaffPage({
         subtitle="HR records, qualifications, and class/subject assignments."
         actions={can(user.role, "staff.create") ? <AddStaffButton subjects={subjectOptions} classes={classOptions} /> : null}
       />
-      <form className="mb-4 grid gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:grid-cols-5">
+      <form className="mb-4 grid gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:grid-cols-6">
         <Input name="q" defaultValue={params.q} placeholder="Name, staff ID, subject..." className="md:col-span-2" />
         <Select name="gender" defaultValue={params.gender ?? ""}>
           <option value="">All genders</option>
           <option value="MALE">Male</option>
           <option value="FEMALE">Female</option>
+        </Select>
+        <Select name="facultyType" defaultValue={params.facultyType ?? ""}>
+          <option value="">All faculty</option>
+          {Object.entries(FACULTY_TYPE_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
         </Select>
         <Select name="employmentStatus" defaultValue={params.employmentStatus ?? ""}>
           <option value="">All statuses</option>
@@ -86,6 +91,7 @@ export default async function StaffPage({
                   <th>Staff</th>
                   <th>Qualification</th>
                   <th>Salary</th>
+                  <th>Faculty</th>
                   <th>Subjects</th>
                   <th>Classes</th>
                   <th>Joined</th>
@@ -104,11 +110,12 @@ export default async function StaffPage({
                     </td>
                     <td>{member.qualification}</td>
                     <td>{formatPKR(member.salaryAmount)}</td>
+                    <td>{FACULTY_TYPE_LABELS[member.facultyType ?? "PERMANENT"]}</td>
                     <td>{member.subjects.map((row) => row.subject.name).join(", ") || "—"}</td>
                     <td>
                       {member.assignments.map((row) => `${row.class.name} ${row.class.program.name}`).join(", ") || "—"}
                     </td>
-                    <td>{member.dateOfJoining.toLocaleDateString()}</td>
+                    <td>{formatDate(member.dateOfJoining)}</td>
                     <td>{EMPLOYMENT_LABELS[member.employmentStatus]}</td>
                     <td>
                       {can(user.role, "staff.edit") ? (
@@ -128,6 +135,7 @@ export default async function StaffPage({
                             address: member.address,
                             gender: member.gender,
                             employmentStatus: member.employmentStatus,
+                            facultyType: member.facultyType ?? "PERMANENT",
                             subjectIds: member.subjects.map((row) => row.subjectId),
                             classIds: member.assignments.map((row) => row.classId),
                             salaryAmount: member.salaryAmount,

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { fullName } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -14,42 +14,31 @@ export async function GET(request: Request) {
   if (q.length < 2) {
     return NextResponse.json({ students: [], staff: [], classes: [] });
   }
+  const needle = q.toLowerCase();
 
-  const [students, staff, classes] = await Promise.all([
-    prisma.student.findMany({
-      where: {
-        deletedAt: null,
-        OR: [
-          { firstName: { contains: q } },
-          { lastName: { contains: q } },
-          { fatherName: { contains: q } },
-          { registrationNo: { contains: q } },
-        ],
-      },
-      take: 6,
-      include: { class: { include: { program: true } } },
-    }),
-    prisma.staff.findMany({
-      where: {
-        OR: [
-          { firstName: { contains: q } },
-          { lastName: { contains: q } },
-          { staffId: { contains: q } },
-        ],
-      },
-      take: 6,
-    }),
-    prisma.class.findMany({
-      where: {
-        OR: [
-          { name: { contains: q } },
-          { program: { name: { contains: q } } },
-        ],
-      },
-      take: 6,
-      include: { program: true },
-    }),
+  const [studentsRes, staffRes, classesRes] = await Promise.all([
+    db().from("Student").select("*, class:Class(*, program:Program(*))").is("deletedAt", null),
+    db().from("Staff").select("*"),
+    db().from("Class").select("*, program:Program(*)"),
   ]);
+  if (studentsRes.error) throw studentsRes.error;
+  if (staffRes.error) throw staffRes.error;
+  if (classesRes.error) throw classesRes.error;
+
+  const students = (studentsRes.data ?? [])
+    .filter((student) =>
+      [student.firstName, student.lastName, student.fatherName, student.registrationNo]
+        .join(" ")
+        .toLowerCase()
+        .includes(needle),
+    )
+    .slice(0, 6);
+  const staff = (staffRes.data ?? [])
+    .filter((member) => `${member.firstName} ${member.lastName} ${member.staffId}`.toLowerCase().includes(needle))
+    .slice(0, 6);
+  const classes = (classesRes.data ?? [])
+    .filter((item) => `${item.name} ${item.program?.name ?? ""}`.toLowerCase().includes(needle))
+    .slice(0, 6);
 
   return NextResponse.json({
     students: students.map((student) => ({

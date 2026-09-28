@@ -2,24 +2,83 @@
   "name": "nccs",
   "version": "0.1.0",
   "private": true,
+  "description": "NCCS school management desktop app",
+  "author": "NCCS",
+  "main": "desktop/main.cjs",
   "scripts": {
     "dev": "next dev",
     "build": "node scripts/build.cjs",
     "start": "next start",
     "lint": "eslint",
-    "db:push": "prisma db push",
-    "db:seed": "tsx prisma/seed.ts",
-    "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
-    "db:backup": "node --env-file=.env --import tsx scripts/backup-now.ts",
-    "db:import": "node --env-file=.env --import tsx scripts/import-snapshot.ts",
-    "postinstall": "node scripts/prisma-generate.cjs"
+    "db:seed": "node --env-file=.env --env-file=.env.local --import tsx scripts/seed.ts",
+    "db:backup": "node --env-file=.env --env-file=.env.local --import tsx scripts/backup-now.ts",
+    "db:import": "node --env-file=.env --env-file=.env.local --import tsx scripts/import-snapshot.ts",
+    "desktop": "electron .",
+    "desktop:dev": "NCCS_DESKTOP_URL=http://localhost:3000 electron .",
+    "desktop:win": "node scripts/desktop-build.cjs",
+    "desktop:mac": "node scripts/desktop-build.cjs --mac"
   },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
+  "build": {
+    "appId": "edu.nccs.desktop",
+    "productName": "NCCS",
+    "copyright": "NCCS",
+    "asar": true,
+    "files": [
+      "desktop/**/*",
+      "package.json",
+      "node_modules/bcryptjs/**/*"
+    ],
+    "afterPack": "./scripts/desktop-after-pack.cjs",
+    "extraResources": [
+      {
+        "from": ".next/standalone",
+        "to": "app-server",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": ".next/standalone/node_modules",
+        "to": "app-server/node_modules"
+      }
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "desktop/icons"
+    },
+    "win": {
+      "icon": "desktop/icons/icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "NCCS.exe"
+    },
+    "mac": {
+      "icon": "desktop/icons/icon.icns",
+      "category": "public.app-category.education",
+      "target": [
+        "dmg"
+      ]
+    },
+    "dmg": {
+      "artifactName": "NCCS.dmg",
+      "title": "NCCS"
+    }
   },
   "dependencies": {
-    "@prisma/client": "^6.19.0",
-    "@supabase/server": "^1.6.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.116.0",
     "bcryptjs": "^3.0.3",
@@ -41,9 +100,10 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
-    "prisma": "^6.19.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.13",
     "typescript": "^5"

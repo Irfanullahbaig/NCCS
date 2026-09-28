@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { currentMonthYear, fullName, toCsv } from "@/lib/utils";
-import { STUDENT_TYPE_LABELS } from "@/lib/constants";
+import { STUDENT_TYPE_LABELS, FACULTY_TYPE_LABELS } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
+
+function dateOnly(value: Date | string) {
+  return new Date(value).toISOString().slice(0, 10);
+}
 
 export async function GET(request: Request) {
   const user = await getSession();
@@ -23,11 +27,13 @@ export async function GET(request: Request) {
 
   if (["students", "scholarship", "need-based", "self", "class-students"].includes(type)) {
     const studentType = type === "scholarship" ? "SCHOLARSHIP" : type === "need-based" ? "NEED_BASED" : type === "self" ? "SELF" : undefined;
-    const students = await prisma.student.findMany({
-      where: { deletedAt: null, ...(studentType ? { studentType } : {}) },
-      include: { class: { include: { program: true } } },
-      orderBy: { firstName: "asc" },
-    });
+    const studentsRes = await db()
+      .from("Student")
+      .select("*, class:Class(*, program:Program(*))")
+      .is("deletedAt", null)
+      .order("firstName", { ascending: true });
+    if (studentsRes.error) throw studentsRes.error;
+    const students = (studentsRes.data ?? []).filter((student) => (studentType ? student.studentType === studentType : true));
     rows = [
       ["Registration No", "Student", "Father", "Class", "Program", "Type", "Fee", "Status"],
       ...students.map((student) => [
@@ -42,52 +48,49 @@ export async function GET(request: Request) {
       ]),
     ];
   } else if (["staff", "assignments", "joining"].includes(type)) {
-    const staff = await prisma.staff.findMany({
-      include: {
-        subjects: { include: { subject: true } },
-        assignments: { include: { class: { include: { program: true } } } },
-      },
-      orderBy: { dateOfJoining: "asc" },
-    });
+    const staffRes = await db()
+      .from("Staff")
+      .select("*, subjects:StaffSubject(*, subject:Subject(*)), assignments:StaffAssignment(*, class:Class(*, program:Program(*)))")
+      .order("dateOfJoining", { ascending: true });
+    if (staffRes.error) throw staffRes.error;
+    const staff = staffRes.data ?? [];
     rows = [
-      ["Staff ID", "Name", "Qualification", "Joined", "Status", "Subjects", "Classes"],
+      ["Staff ID", "Name", "Faculty", "Qualification", "Joined", "Status", "Subjects", "Classes"],
       ...staff.map((member) => [
         member.staffId,
         fullName(member.firstName, member.lastName),
+        FACULTY_TYPE_LABELS[member.facultyType ?? "PERMANENT"],
         member.qualification,
-        member.dateOfJoining.toISOString().slice(0, 10),
+        dateOnly(member.dateOfJoining),
         member.employmentStatus,
         member.subjects.map((row) => row.subject.name).join("; "),
         member.assignments.map((row) => `${row.class.name} ${row.class.program.name}`).join("; "),
       ]),
     ];
   } else if (type === "monthly-expenses") {
-    const expenses = await prisma.expenseTransaction.findMany({
-      where: { voidedAt: null },
-      orderBy: { date: "desc" },
-    });
+    const expensesRes = await db().from("ExpenseTransaction").select("*").is("voidedAt", null).order("date", { ascending: false });
+    if (expensesRes.error) throw expensesRes.error;
+    const expenses = expensesRes.data ?? [];
     rows = [
       ["Expense ID", "Date", "Category", "Paid To", "Amount", "Method"],
-      ...expenses.map((row) => [row.expenseId, row.date.toISOString().slice(0, 10), row.category, row.paidTo, row.amount, row.paymentMethod]),
+      ...expenses.map((row) => [row.expenseId, dateOnly(row.date), row.category, row.paidTo, row.amount, row.paymentMethod]),
     ];
   } else if (type === "daily-income" || type === "monthly-income" || type === "income-vs-expenses") {
-    const income = await prisma.incomeTransaction.findMany({
-      where: { voidedAt: null },
-      orderBy: { date: "desc" },
-    });
+    const incomeRes = await db().from("IncomeTransaction").select("*").is("voidedAt", null).order("date", { ascending: false });
+    if (incomeRes.error) throw incomeRes.error;
+    const income = incomeRes.data ?? [];
     rows = [
       ["Income ID", "Date", "Category", "Source", "Amount", "Method"],
-      ...income.map((row) => [row.incomeId, row.date.toISOString().slice(0, 10), row.category, row.source ?? "", row.amount, row.paymentMethod]),
+      ...income.map((row) => [row.incomeId, dateOnly(row.date), row.category, row.source ?? "", row.amount, row.paymentMethod]),
     ];
   } else {
-    const records = await prisma.feeRecord.findMany({
-      where: {
-        month,
-        year,
-        ...(type === "outstanding" ? { remainingAmount: { gt: 0 } } : {}),
-      },
-      include: { student: { include: { class: { include: { program: true } } } } },
-    });
+    const recordsRes = await db()
+      .from("FeeRecord")
+      .select("*, student:Student(*, class:Class(*, program:Program(*)))")
+      .eq("month", month)
+      .eq("year", year);
+    if (recordsRes.error) throw recordsRes.error;
+    const records = (recordsRes.data ?? []).filter((record) => (type === "outstanding" ? record.remainingAmount > 0 : true));
     rows = [
       ["Student", "Class", "Program", "Type", "Expected", "Paid", "Waived", "Remaining", "Status"],
       ...records.map((record) => [

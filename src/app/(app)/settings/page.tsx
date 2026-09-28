@@ -1,5 +1,5 @@
 import { requirePermission } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { PageHeader, Card, Field, Input, Button } from "@/components/ui";
 import { saveSettingsForm } from "@/actions/users";
 import { createAcademicYearForm } from "@/actions/classes";
@@ -9,9 +9,12 @@ import { BackupActions } from "@/components/backup-forms";
 export default async function SettingsPage() {
   await requirePermission("settings.manage");
   await ensureWeeklyBackup().catch(() => undefined);
-  const settings = await prisma.setting.findMany();
-  const map = Object.fromEntries(settings.map((item) => [item.key, item.value]));
-  const years = await prisma.academicYear.findMany({ orderBy: { startDate: "desc" } });
+  const settingsRes = await db().from("Setting").select("*");
+  if (settingsRes.error) throw settingsRes.error;
+  const map = Object.fromEntries((settingsRes.data ?? []).map((item) => [item.key, item.value]));
+  const yearsRes = await db().from("AcademicYear").select("*").order("startDate", { ascending: false });
+  if (yearsRes.error) throw yearsRes.error;
+  const years = yearsRes.data ?? [];
   const backups = await listBackups();
 
   return (

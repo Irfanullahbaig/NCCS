@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { Gender, StudentStatus, StudentType } from "@prisma/client";
+import { Gender, StudentStatus, StudentType } from "@/lib/enums";
 import { requirePermission } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { db, newId, nowIso } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { nextStudentRegNo } from "@/lib/ids";
 import { parseDateInput } from "@/lib/utils";
@@ -33,20 +33,24 @@ export async function createStudent(formData: FormData) {
   }
   if (!Number.isFinite(feeAmount) || feeAmount < 0) return fail("Fee amount is invalid");
 
-  const schoolClass = await prisma.class.findUnique({ where: { id: classId } });
-  if (!schoolClass) return fail("Class not found");
+  const schoolClass = await db().from("Class").select("id").eq("id", classId).maybeSingle();
+  if (schoolClass.error) throw schoolClass.error;
+  if (!schoolClass.data) return fail("Class not found");
 
   const year = parseDateInput(dateOfAdmission).getFullYear();
   const registrationNo = String(formData.get("registrationNo") ?? "").trim() || (await nextStudentRegNo(year));
+  const stamp = nowIso();
 
-  const student = await prisma.student.create({
-    data: {
+  const student = await db()
+    .from("Student")
+    .insert({
+      id: newId(),
       registrationNo,
       firstName,
       lastName,
       fatherName,
       classId,
-      dateOfAdmission: parseDateInput(dateOfAdmission),
+      dateOfAdmission: nowIso(parseDateInput(dateOfAdmission)),
       gender,
       contactNumber,
       email: email || null,
@@ -54,31 +58,36 @@ export async function createStudent(formData: FormData) {
       studentType,
       feeAmount: Math.round(feeAmount),
       status,
+      createdAt: stamp,
+      updatedAt: stamp,
       createdById: user.id,
       updatedById: user.id,
-    },
-  });
+    })
+    .select("id")
+    .single();
+  if (student.error) throw student.error;
 
-  await ensureStudentFeeRecord({ studentId: student.id, userId: user.id });
+  await ensureStudentFeeRecord({ studentId: student.data.id, userId: user.id });
   await writeAudit({
     userId: user.id,
     action: "STUDENT_ADDED",
     entityType: "Student",
-    entityId: student.id,
+    entityId: student.data.id,
     details: { registrationNo, name: `${firstName} ${lastName}`, studentType },
   });
 
   revalidatePath("/students");
   revalidatePath("/classes");
   revalidatePath("/");
-  return { ok: true as const, id: student.id };
+  return { ok: true as const, id: student.data.id };
 }
 
 export async function updateStudent(formData: FormData) {
   const user = await requirePermission("students.edit");
   const id = String(formData.get("id") ?? "");
-  const existing = await prisma.student.findFirst({ where: { id, deletedAt: null } });
-  if (!existing) return fail("Student not found");
+  const existing = await db().from("Student").select("id").eq("id", id).is("deletedAt", null).maybeSingle();
+  if (existing.error) throw existing.error;
+  if (!existing.data) return fail("Student not found");
 
   const firstName = String(formData.get("firstName") ?? "").trim();
   const lastName = String(formData.get("lastName") ?? "").trim();
@@ -95,14 +104,14 @@ export async function updateStudent(formData: FormData) {
 
   if (!firstName || !lastName || !fatherName || !classId) return fail("Please complete required fields");
 
-  await prisma.student.update({
-    where: { id },
-    data: {
+  const updated = await db()
+    .from("Student")
+    .update({
       firstName,
       lastName,
       fatherName,
       classId,
-      dateOfAdmission: parseDateInput(dateOfAdmission),
+      dateOfAdmission: nowIso(parseDateInput(dateOfAdmission)),
       gender,
       contactNumber,
       email: email || null,
@@ -110,9 +119,11 @@ export async function updateStudent(formData: FormData) {
       studentType,
       feeAmount: Math.round(feeAmount),
       status,
+      updatedAt: nowIso(),
       updatedById: user.id,
-    },
-  });
+    })
+    .eq("id", id);
+  if (updated.error) throw updated.error;
 
   await writeAudit({
     userId: user.id,
@@ -132,20 +143,22 @@ export async function updateStudent(formData: FormData) {
 export async function deleteStudent(formData: FormData) {
   const user = await requirePermission("students.delete");
   const id = String(formData.get("id") ?? "");
-  const existing = await prisma.student.findFirst({ where: { id, deletedAt: null } });
-  if (!existing) return fail("Student not found");
+  const existing = await db().from("Student").select("id, registrationNo").eq("id", id).is("deletedAt", null).maybeSingle();
+  if (existing.error) throw existing.error;
+  if (!existing.data) return fail("Student not found");
 
-  await prisma.student.update({
-    where: { id },
-    data: { deletedAt: new Date(), status: "INACTIVE", updatedById: user.id },
-  });
+  const updated = await db()
+    .from("Student")
+    .update({ deletedAt: nowIso(), status: "INACTIVE", updatedAt: nowIso(), updatedById: user.id })
+    .eq("id", id);
+  if (updated.error) throw updated.error;
 
   await writeAudit({
     userId: user.id,
     action: "STUDENT_DELETED",
     entityType: "Student",
     entityId: id,
-    details: { registrationNo: existing.registrationNo },
+    details: { registrationNo: existing.data.registrationNo },
   });
 
   revalidatePath("/students");

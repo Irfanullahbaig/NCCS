@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { ensureCurrentMonthFees } from "@/lib/finance";
-import { currentMonthYear, formatPKR, fullName } from "@/lib/utils";
+import { currentMonthYear, formatDate, formatPKR, fullName } from "@/lib/utils";
 import { PageHeader, EmptyState, ViewOnlyBadge } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
 import { RecordPaymentButton } from "@/components/forms";
@@ -12,15 +12,15 @@ export default async function OutstandingPage() {
   const user = await requirePermission("fees.view");
   await ensureCurrentMonthFees();
   const { month, year } = currentMonthYear();
-  const records = await prisma.feeRecord.findMany({
-    where: {
-      month,
-      year,
-      status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] },
-    },
-    include: { student: { include: { class: { include: { program: true } } } } },
-    orderBy: { remainingAmount: "desc" },
-  });
+  const recordsRes = await db()
+    .from("FeeRecord")
+    .select("*, student:Student(*, class:Class(*, program:Program(*)))")
+    .eq("month", month)
+    .eq("year", year)
+    .in("status", ["PENDING", "PARTIALLY_PAID", "OVERDUE"])
+    .order("remainingAmount", { ascending: false });
+  if (recordsRes.error) throw recordsRes.error;
+  const records = recordsRes.data ?? [];
 
   const students = records.map((record) => ({
     id: record.student.id,
@@ -70,7 +70,7 @@ export default async function OutstandingPage() {
                     <td>{record.student.class.name} — {record.student.class.program.name}</td>
                     <td><TypeBadge type={record.student.studentType} /></td>
                     <td>{formatPKR(record.remainingAmount)}</td>
-                    <td>{record.dueDate.toLocaleDateString()}</td>
+                    <td>{formatDate(record.dueDate)}</td>
                     <td><FeeBadge status={record.status} /></td>
                   </tr>
                 ))}

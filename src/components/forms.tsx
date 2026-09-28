@@ -11,9 +11,11 @@ import { createStaff, updateStaff } from "@/actions/staff";
 import { createStudent, deleteStudent, updateStudent } from "@/actions/students";
 import { createUserAction } from "@/actions/users";
 import { Button, ErrorText, Field, Input, Select, Textarea } from "@/components/ui";
+import { formatPKR, MONTH_NAMES } from "@/lib/utils";
 import {
   EMPLOYMENT_LABELS,
   EXPENSE_CATEGORY_LABELS,
+  FACULTY_TYPE_LABELS,
   GENDER_LABELS,
   INCOME_CATEGORY_LABELS,
   PAYMENT_METHOD_LABELS,
@@ -385,6 +387,7 @@ export function StaffForm({
     address: string;
     gender: string;
     employmentStatus: string;
+    facultyType: string;
     subjectIds: string[];
     classIds: string[];
     salaryAmount: number;
@@ -407,6 +410,13 @@ export function StaffForm({
         <Field label="Employment status">
           <Select name="employmentStatus" defaultValue={initial?.employmentStatus ?? "ACTIVE"}>
             {Object.entries(EMPLOYMENT_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Faculty">
+          <Select name="facultyType" defaultValue={initial?.facultyType ?? "PERMANENT"} required>
+            {Object.entries(FACULTY_TYPE_LABELS).map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
             ))}
           </Select>
@@ -461,35 +471,65 @@ export function StaffForm({
   );
 }
 
+function CustomSubjectsFields({ initialNames }: { initialNames?: string[] }) {
+  const [names, setNames] = useState(initialNames?.length ? initialNames : [""]);
+
+  useEffect(() => {
+    setNames(initialNames?.length ? initialNames : [""]);
+  }, [initialNames]);
+
+  return (
+    <div className="space-y-2">
+      {names.map((name, index) => (
+        <div key={index} className="flex gap-2">
+          <Input
+            name="subjectNames"
+            value={name}
+            onChange={(event) => {
+              const next = [...names];
+              next[index] = event.target.value;
+              setNames(next);
+            }}
+            placeholder={index === 0 ? "e.g. Mathematics" : "Subject name"}
+          />
+          {names.length > 1 ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setNames(names.filter((_, itemIndex) => itemIndex !== index))}
+            >
+              Remove
+            </Button>
+          ) : null}
+        </div>
+      ))}
+      <Button type="button" variant="ghost" onClick={() => setNames([...names, ""])}>
+        Add subject
+      </Button>
+    </div>
+  );
+}
+
 export function ClassForm({
   open,
   onClose,
-  programs,
-  years,
   teachers,
-  subjects,
   initial,
 }: {
   open: boolean;
   onClose: () => void;
-  programs: Array<{ id: string; name: string }>;
-  years: Array<{ id: string; name: string }>;
   teachers: Array<{ id: string; name: string }>;
-  subjects: SubjectOption[];
   initial?: {
     id: string;
     name: string;
-    programId: string;
-    academicYearId: string;
     classTeacherId?: string | null;
-    feeAmount: number;
     status: string;
-    subjectIds: string[];
+    subjectNames: string[];
   };
 }) {
   const { error, pending, submit } = useSubmit();
   return (
-    <Modal open={open} onClose={onClose} title={initial ? "Edit class" : "Create class / program section"}>
+    <Modal open={open} onClose={onClose} title={initial ? "Edit class" : "Create class"}>
       <form
         className="grid gap-4 sm:grid-cols-2"
         onSubmit={async (event) => {
@@ -498,18 +538,8 @@ export function ClassForm({
         }}
       >
         {initial ? <input type="hidden" name="id" value={initial.id} /> : null}
-        <Field label="Class / grade name"><Input name="name" defaultValue={initial?.name} placeholder="Grade 10" required /></Field>
-        <Field label="Program / group">
-          <Select name="programId" defaultValue={initial?.programId} required>
-            <option value="">Select program</option>
-            {programs.map((program) => <option key={program.id} value={program.id}>{program.name}</option>)}
-          </Select>
-        </Field>
-        <Field label="Academic year">
-          <Select name="academicYearId" defaultValue={initial?.academicYearId} required>
-            <option value="">Select year</option>
-            {years.map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}
-          </Select>
+        <Field label="Class or Grade name" className="sm:col-span-2">
+          <Input name="name" defaultValue={initial?.name} placeholder="Grade 10" required />
         </Field>
         <Field label="Class teacher">
           <Select name="classTeacherId" defaultValue={initial?.classTeacherId ?? ""}>
@@ -517,20 +547,14 @@ export function ClassForm({
             {teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}
           </Select>
         </Field>
-        <Field label="Fee amount"><Input type="number" min="0" name="feeAmount" defaultValue={initial?.feeAmount ?? 0} required /></Field>
         <Field label="Status">
           <Select name="status" defaultValue={initial?.status ?? "ACTIVE"}>
             <option value="ACTIVE">Active</option>
             <option value="INACTIVE">Inactive</option>
           </Select>
         </Field>
-        <Field label="Subjects" className="sm:col-span-2">
-          <Checklist
-            name="subjectIds"
-            defaultValue={initial?.subjectIds ?? []}
-            empty="Add subjects first, then attach them to this class."
-            options={subjects.map((subject) => ({ id: subject.id, label: subject.name }))}
-          />
+        <Field label="Custom subjects" className="sm:col-span-2">
+          <CustomSubjectsFields initialNames={initial?.subjectNames} />
         </Field>
         <div className="sm:col-span-2 space-y-3">
           <ErrorText>{error}</ErrorText>
@@ -555,7 +579,7 @@ export function ProgramForm({ open, onClose }: { open: boolean; onClose: () => v
           await submit(createProgram, new FormData(event.currentTarget), "Program created", onClose);
         }}
       >
-        <Field label="Program name"><Input name="name" placeholder="ICS" required /></Field>
+        <Field label="Program name"><Input name="name" placeholder="Local System" required /></Field>
         <Field label="Description"><Textarea name="description" /></Field>
         <ErrorText>{error}</ErrorText>
         <div className="flex justify-end gap-2">
@@ -848,22 +872,14 @@ export function AddStaffButton({ subjects, classes }: { subjects: SubjectOption[
   );
 }
 
-export function AddClassButtons(props: {
-  programs: Array<{ id: string; name: string }>;
-  years: Array<{ id: string; name: string }>;
-  teachers: Array<{ id: string; name: string }>;
-  subjects: SubjectOption[];
-}) {
+export function AddClassButtons({ teachers }: { teachers: Array<{ id: string; name: string }> }) {
   const [classOpen, setClassOpen] = useState(false);
-  const [programOpen, setProgramOpen] = useState(false);
   const [subjectOpen, setSubjectOpen] = useState(false);
   return (
     <>
       <Button variant="outline" onClick={() => setSubjectOpen(true)}>Add subject</Button>
-      <Button variant="outline" onClick={() => setProgramOpen(true)}>Add program</Button>
       <Button onClick={() => setClassOpen(true)}>Create class</Button>
-      <ClassForm open={classOpen} onClose={() => setClassOpen(false)} {...props} />
-      <ProgramForm open={programOpen} onClose={() => setProgramOpen(false)} />
+      <ClassForm open={classOpen} onClose={() => setClassOpen(false)} teachers={teachers} />
       <SubjectForm open={subjectOpen} onClose={() => setSubjectOpen(false)} />
     </>
   );
@@ -930,40 +946,23 @@ export function EditStaffButton(props: { subjects: SubjectOption[]; classes: Cla
 }
 
 export function EditClassButton({
-  programs,
-  years,
   teachers,
-  subjects,
   initial,
 }: {
-  programs: Array<{ id: string; name: string }>;
-  years: Array<{ id: string; name: string }>;
   teachers: Array<{ id: string; name: string }>;
-  subjects: SubjectOption[];
   initial: {
     id: string;
     name: string;
-    programId: string;
-    academicYearId: string;
     classTeacherId?: string | null;
-    feeAmount: number;
     status: string;
-    subjectIds: string[];
+    subjectNames: string[];
   };
 }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <Button size="sm" variant="outline" onClick={() => setOpen(true)}>Edit</Button>
-      <ClassForm
-        open={open}
-        onClose={() => setOpen(false)}
-        programs={programs}
-        years={years}
-        teachers={teachers}
-        subjects={subjects}
-        initial={initial}
-      />
+      <ClassForm open={open} onClose={() => setOpen(false)} teachers={teachers} initial={initial} />
     </>
   );
 }
@@ -1129,9 +1128,9 @@ export function SalaryPaymentForm({
         </Field>
         {selected ? (
           <p className="sm:col-span-2 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">
-            Assigned salary: <strong className="text-navy">Rs. {selected.salaryAmount.toLocaleString("en-PK")}</strong>
+            Assigned salary: <strong className="text-navy">{formatPKR(selected.salaryAmount)}</strong>
             {typeof selected.remaining === "number" ? (
-              <> · Remaining: <strong className="text-navy">Rs. {selected.remaining.toLocaleString("en-PK")}</strong></>
+              <> · Remaining: <strong className="text-navy">{formatPKR(selected.remaining)}</strong></>
             ) : null}
           </p>
         ) : null}
@@ -1141,7 +1140,7 @@ export function SalaryPaymentForm({
               <Select name="month" defaultValue={String(defaultMonth)} required>
                 {Array.from({ length: 12 }, (_, index) => (
                   <option key={index + 1} value={index + 1}>
-                    {new Date(2000, index, 1).toLocaleString("en-US", { month: "long" })}
+                    {MONTH_NAMES[index]}
                   </option>
                 ))}
               </Select>

@@ -1,11 +1,5 @@
-import type {
-  ExpenseCategory,
-  FeeStatus,
-  IncomeCategory,
-  PaymentMethod,
-  Prisma,
-} from "@prisma/client";
-import { prisma } from "@/lib/db";
+import type { ExpenseCategory, FeeStatus, IncomeCategory, PaymentMethod } from "@/lib/enums";
+import { db, newId, nowIso } from "@/lib/db";
 import { currentMonthYear, lastDayOfMonth, startOfDay } from "@/lib/utils";
 import { nextExpenseId, nextIncomeId } from "@/lib/ids";
 import { writeAudit } from "@/lib/audit";
@@ -14,7 +8,7 @@ export function deriveFeeStatus(input: {
   expected: number;
   paid: number;
   waived: number;
-  dueDate: Date;
+  dueDate: Date | string;
   now?: Date;
 }): { remaining: number; status: FeeStatus } {
   const expected = Math.max(0, Math.round(input.expected));
@@ -32,23 +26,26 @@ export function deriveFeeStatus(input: {
     return { remaining, status: "PARTIALLY_PAID" };
   }
   const now = startOfDay(input.now ?? new Date());
-  if (startOfDay(input.dueDate) < now) {
+  const due = startOfDay(new Date(input.dueDate));
+  if (due < now) {
     return { remaining, status: "OVERDUE" };
   }
   return { remaining, status: "PENDING" };
 }
 
-export async function recalculateFeeRecord(
-  feeRecordId: string,
-  db: Prisma.TransactionClient | typeof prisma = prisma,
-) {
-  const record = await db.feeRecord.findUnique({
-    where: { id: feeRecordId },
-    include: { payments: { where: { voidedAt: null } } },
-  });
+export async function recalculateFeeRecord(feeRecordId: string) {
+  const { data: record, error } = await db().from("FeeRecord").select("*").eq("id", feeRecordId).maybeSingle();
+  if (error) throw error;
   if (!record) throw new Error("Fee record not found");
 
-  const paid = record.payments.reduce((sum, payment) => sum + payment.amount, 0);
+  const { data: payments, error: paymentError } = await db()
+    .from("FeePayment")
+    .select("amount")
+    .eq("feeRecordId", feeRecordId)
+    .is("voidedAt", null);
+  if (paymentError) throw paymentError;
+
+  const paid = (payments ?? []).reduce((sum, payment) => sum + payment.amount, 0);
   const derived = deriveFeeStatus({
     expected: record.expectedAmount,
     paid,
@@ -56,14 +53,19 @@ export async function recalculateFeeRecord(
     dueDate: record.dueDate,
   });
 
-  return db.feeRecord.update({
-    where: { id: feeRecordId },
-    data: {
+  const { data: updated, error: updateError } = await db()
+    .from("FeeRecord")
+    .update({
       paidAmount: paid,
       remainingAmount: derived.remaining,
       status: derived.status,
-    },
-  });
+      updatedAt: nowIso(),
+    })
+    .eq("id", feeRecordId)
+    .select()
+    .single();
+  if (updateError) throw updateError;
+  return updated;
 }
 
 export async function ensureStudentFeeRecord(input: {
@@ -71,39 +73,40 @@ export async function ensureStudentFeeRecord(input: {
   month?: number;
   year?: number;
   userId?: string | null;
-  db?: Prisma.TransactionClient | typeof prisma;
 }) {
-  const db = input.db ?? prisma;
-  const { month, year } = input.month && input.year
-    ? { month: input.month, year: input.year }
-    : currentMonthYear();
+  const { month, year } = input.month && input.year ? { month: input.month, year: input.year } : currentMonthYear();
 
-  const existing = await db.feeRecord.findUnique({
-    where: { studentId_year_month: { studentId: input.studentId, year, month } },
-  });
-  if (existing) return existing;
+  const existing = await db()
+    .from("FeeRecord")
+    .select("*")
+    .eq("studentId", input.studentId)
+    .eq("year", year)
+    .eq("month", month)
+    .maybeSingle();
+  if (existing.error) throw existing.error;
+  if (existing.data) return existing.data;
 
-  const student = await db.student.findUnique({
-    where: { id: input.studentId },
-    include: { class: true },
-  });
-  if (!student) throw new Error("Student not found");
+  const student = await db()
+    .from("Student")
+    .select("*, class:Class(*)")
+    .eq("id", input.studentId)
+    .maybeSingle();
+  if (student.error) throw student.error;
+  if (!student.data || !student.data.class) throw new Error("Student not found");
 
-  const expected = student.feeAmount;
-  const waived = student.studentType === "SCHOLARSHIP" ? expected : 0;
+  const expected = student.data.feeAmount;
+  const waived = student.data.studentType === "SCHOLARSHIP" ? expected : 0;
   const dueDate = lastDayOfMonth(year, month);
-  const derived = deriveFeeStatus({
-    expected,
-    paid: 0,
-    waived,
-    dueDate,
-  });
+  const derived = deriveFeeStatus({ expected, paid: 0, waived, dueDate });
+  const stamp = nowIso();
 
-  return db.feeRecord.create({
-    data: {
-      studentId: student.id,
-      classId: student.classId,
-      academicYearId: student.class.academicYearId,
+  const created = await db()
+    .from("FeeRecord")
+    .insert({
+      id: newId(),
+      studentId: student.data.id,
+      classId: student.data.classId,
+      academicYearId: student.data.class.academicYearId,
       month,
       year,
       expectedAmount: expected,
@@ -111,40 +114,39 @@ export async function ensureStudentFeeRecord(input: {
       waivedAmount: waived,
       remainingAmount: derived.remaining,
       status: derived.status,
-      dueDate,
+      dueDate: dueDate.toISOString(),
+      createdAt: stamp,
+      updatedAt: stamp,
       createdById: input.userId ?? null,
       updatedById: input.userId ?? null,
-    },
-  });
+    })
+    .select()
+    .single();
+  if (created.error) throw created.error;
+  return created.data;
 }
 
 export async function ensureCurrentMonthFees(userId?: string | null) {
   const { month, year } = currentMonthYear();
-  const students = await prisma.student.findMany({
-    where: { deletedAt: null, status: "ACTIVE" },
-    select: { id: true },
-  });
-  for (const student of students) {
+  const students = await db().from("Student").select("id").is("deletedAt", null).eq("status", "ACTIVE");
+  if (students.error) throw students.error;
+  for (const student of students.data ?? []) {
     await ensureStudentFeeRecord({ studentId: student.id, month, year, userId });
   }
   await refreshOverdueStatuses();
 }
 
 export async function refreshOverdueStatuses() {
-  const today = startOfDay(new Date());
-  const overdue = await prisma.feeRecord.findMany({
-    where: {
-      status: "PENDING",
-      dueDate: { lt: today },
-    },
-  });
-
-  for (const record of overdue) {
+  const today = startOfDay(new Date()).toISOString();
+  const overdue = await db().from("FeeRecord").select("*").eq("status", "PENDING").lt("dueDate", today);
+  if (overdue.error) throw overdue.error;
+  for (const record of overdue.data ?? []) {
     if (record.waivedAmount >= record.expectedAmount) continue;
-    await prisma.feeRecord.update({
-      where: { id: record.id },
-      data: { status: "OVERDUE" },
-    });
+    const { error } = await db()
+      .from("FeeRecord")
+      .update({ status: "OVERDUE", updatedAt: nowIso() })
+      .eq("id", record.id);
+    if (error) throw error;
   }
 }
 
@@ -162,125 +164,108 @@ export async function recordStudentPayment(input: {
   const amount = Math.round(input.amount);
   if (amount <= 0) throw new Error("Payment amount must be greater than zero");
 
-  return prisma.$transaction(async (tx) => {
-    const student = await tx.student.findUnique({
-      where: { id: input.studentId },
-      include: { class: { include: { program: true } } },
-    });
-    if (!student || student.deletedAt) throw new Error("Student not found");
+  const student = await db()
+    .from("Student")
+    .select("*, class:Class(*, program:Program(*))")
+    .eq("id", input.studentId)
+    .maybeSingle();
+  if (student.error) throw student.error;
+  if (!student.data || student.data.deletedAt || !student.data.class) throw new Error("Student not found");
 
-    const feeRecord = await ensureStudentFeeRecord({
-      studentId: student.id,
-      month: input.month,
-      year: input.year,
-      userId: input.userId,
-      db: tx,
-    });
-
-    const live = await tx.feeRecord.findUniqueOrThrow({
-      where: { id: feeRecord.id },
-      include: { payments: { where: { voidedAt: null } } },
-    });
-
-    if (live.status === "WAIVED") {
-      throw new Error("This fee is waived and does not require payment");
-    }
-
-    const remaining = live.remainingAmount;
-    if (amount > remaining) {
-      throw new Error(`Payment exceeds remaining balance of Rs. ${remaining.toLocaleString("en-PK")}`);
-    }
-
-    const incomeId = await nextIncomeId(input.paymentDate, tx);
-    const income = await tx.incomeTransaction.create({
-      data: {
-        incomeId,
-        date: input.paymentDate,
-        amount,
-        category: "STUDENT_FEE",
-        source: `${student.firstName} ${student.lastName} — ${student.class.name} ${student.class.program.name}`,
-        studentId: student.id,
-        classId: student.classId,
-        paymentMethod: input.paymentMethod,
-        referenceNumber: input.referenceNumber ?? null,
-        notes: input.notes ?? null,
-        createdById: input.userId,
-        updatedById: input.userId,
-      },
-    });
-
-    const payment = await tx.feePayment.create({
-      data: {
-        feeRecordId: live.id,
-        studentId: student.id,
-        amount,
-        paymentDate: input.paymentDate,
-        paymentMethod: input.paymentMethod,
-        referenceNumber: input.referenceNumber ?? null,
-        notes: input.notes ?? null,
-        incomeTransactionId: income.id,
-        createdById: input.userId,
-        updatedById: input.userId,
-      },
-    });
-
-    await recalculateFeeRecord(live.id, tx);
-
-    return { payment, income, feeRecordId: live.id };
-  }).then(async (result) => {
-    await writeAudit({
-      userId: input.userId,
-      action: "PAYMENT_RECORDED",
-      entityType: "FeePayment",
-      entityId: result.payment.id,
-      details: {
-        studentId: input.studentId,
-        amount,
-        incomeId: result.income.incomeId,
-      },
-    });
-    return result;
+  const feeRecord = await ensureStudentFeeRecord({
+    studentId: student.data.id,
+    month: input.month,
+    year: input.year,
+    userId: input.userId,
   });
+  const live = await db().from("FeeRecord").select("*").eq("id", feeRecord.id).single();
+  if (live.error) throw live.error;
+  if (live.data.status === "WAIVED") throw new Error("This fee is waived and does not require payment");
+  if (amount > live.data.remainingAmount) {
+    throw new Error(`Payment exceeds remaining balance of Rs. ${live.data.remainingAmount.toLocaleString("en-PK")}`);
+  }
+
+  const stamp = nowIso();
+  const incomeId = await nextIncomeId(input.paymentDate);
+  const incomeRow = {
+    id: newId(),
+    incomeId,
+    date: nowIso(input.paymentDate),
+    amount,
+    category: "STUDENT_FEE" as const,
+    source: `${student.data.firstName} ${student.data.lastName} — ${student.data.class.name} ${student.data.class.program.name}`,
+    studentId: student.data.id,
+    classId: student.data.classId,
+    paymentMethod: input.paymentMethod,
+    referenceNumber: input.referenceNumber ?? null,
+    notes: input.notes ?? null,
+    createdAt: stamp,
+    updatedAt: stamp,
+    createdById: input.userId,
+    updatedById: input.userId,
+  };
+  const income = await db().from("IncomeTransaction").insert(incomeRow).select().single();
+  if (income.error) throw income.error;
+
+  const payment = await db()
+    .from("FeePayment")
+    .insert({
+      id: newId(),
+      feeRecordId: live.data.id,
+      studentId: student.data.id,
+      amount,
+      paymentDate: nowIso(input.paymentDate),
+      paymentMethod: input.paymentMethod,
+      referenceNumber: input.referenceNumber ?? null,
+      notes: input.notes ?? null,
+      incomeTransactionId: income.data.id,
+      createdAt: stamp,
+      updatedAt: stamp,
+      createdById: input.userId,
+      updatedById: input.userId,
+    })
+    .select()
+    .single();
+  if (payment.error) throw payment.error;
+
+  await recalculateFeeRecord(live.data.id);
+  await writeAudit({
+    userId: input.userId,
+    action: "PAYMENT_RECORDED",
+    entityType: "FeePayment",
+    entityId: payment.data.id,
+    details: { studentId: input.studentId, amount, incomeId: income.data.incomeId },
+  });
+  return { payment: payment.data, income: income.data, feeRecordId: live.data.id };
 }
 
-export async function voidStudentPayment(input: {
-  paymentId: string;
-  reason: string;
-  userId: string;
-}) {
-  const payment = await prisma.feePayment.findUnique({
-    where: { id: input.paymentId },
-  });
-  if (!payment) throw new Error("Payment not found");
-  if (payment.voidedAt) throw new Error("Payment is already voided");
+export async function voidStudentPayment(input: { paymentId: string; reason: string; userId: string }) {
+  const payment = await db().from("FeePayment").select("*").eq("id", input.paymentId).maybeSingle();
+  if (payment.error) throw payment.error;
+  if (!payment.data) throw new Error("Payment not found");
+  if (payment.data.voidedAt) throw new Error("Payment is already voided");
 
-  await prisma.$transaction(async (tx) => {
-    await tx.feePayment.update({
-      where: { id: payment.id },
-      data: {
-        voidedAt: new Date(),
-        voidedById: input.userId,
-        voidReason: input.reason,
-        updatedById: input.userId,
-      },
-    });
-    await tx.incomeTransaction.update({
-      where: { id: payment.incomeTransactionId },
-      data: {
-        voidedAt: new Date(),
-        voidedById: input.userId,
-        voidReason: input.reason,
-        updatedById: input.userId,
-      },
-    });
-    await recalculateFeeRecord(payment.feeRecordId, tx);
-  });
-
+  const stamp = nowIso();
+  const voidFields = {
+    voidedAt: stamp,
+    voidedById: input.userId,
+    voidReason: input.reason,
+    updatedAt: stamp,
+    updatedById: input.userId,
+  };
+  const payUpdate = await db().from("FeePayment").update(voidFields).eq("id", payment.data.id);
+  if (payUpdate.error) throw payUpdate.error;
+  const incomeUpdate = await db()
+    .from("IncomeTransaction")
+    .update(voidFields)
+    .eq("id", payment.data.incomeTransactionId);
+  if (incomeUpdate.error) throw incomeUpdate.error;
+  await recalculateFeeRecord(payment.data.feeRecordId);
   await writeAudit({
     userId: input.userId,
     action: "PAYMENT_VOIDED",
     entityType: "FeePayment",
-    entityId: payment.id,
+    entityId: payment.data.id,
     details: { reason: input.reason },
   });
 }
@@ -315,14 +300,18 @@ export async function recordIncome(input: {
 
   let classId = input.classId ?? null;
   if (input.studentId && !classId) {
-    const student = await prisma.student.findUnique({ where: { id: input.studentId } });
-    classId = student?.classId ?? null;
+    const student = await db().from("Student").select("classId").eq("id", input.studentId).maybeSingle();
+    if (student.error) throw student.error;
+    classId = student.data?.classId ?? null;
   }
 
-  const income = await prisma.incomeTransaction.create({
-    data: {
+  const stamp = nowIso();
+  const income = await db()
+    .from("IncomeTransaction")
+    .insert({
+      id: newId(),
       incomeId: await nextIncomeId(input.date),
-      date: input.date,
+      date: nowIso(input.date),
       amount,
       category: input.category,
       source: input.source ?? null,
@@ -331,20 +320,23 @@ export async function recordIncome(input: {
       paymentMethod: input.paymentMethod,
       referenceNumber: input.referenceNumber ?? null,
       notes: input.notes ?? null,
+      createdAt: stamp,
+      updatedAt: stamp,
       createdById: input.userId,
       updatedById: input.userId,
-    },
-  });
+    })
+    .select()
+    .single();
+  if (income.error) throw income.error;
 
   await writeAudit({
     userId: input.userId,
     action: "INCOME_ADDED",
     entityType: "IncomeTransaction",
-    entityId: income.id,
-    details: { incomeId: income.incomeId, amount, category: input.category },
+    entityId: income.data.id,
+    details: { incomeId: income.data.incomeId, amount, category: input.category },
   });
-
-  return { income };
+  return { income: income.data };
 }
 
 export async function recordExpense(input: {
@@ -360,11 +352,13 @@ export async function recordExpense(input: {
 }) {
   const amount = Math.round(input.amount);
   if (amount <= 0) throw new Error("Amount must be greater than zero");
-
-  const expense = await prisma.expenseTransaction.create({
-    data: {
+  const stamp = nowIso();
+  const expense = await db()
+    .from("ExpenseTransaction")
+    .insert({
+      id: newId(),
       expenseId: await nextExpenseId(input.date),
-      date: input.date,
+      date: nowIso(input.date),
       amount,
       category: input.category,
       paidTo: input.paidTo,
@@ -372,91 +366,100 @@ export async function recordExpense(input: {
       referenceNumber: input.referenceNumber ?? null,
       description: input.description ?? null,
       notes: input.notes ?? null,
+      createdAt: stamp,
+      updatedAt: stamp,
       createdById: input.userId,
       updatedById: input.userId,
-    },
-  });
+    })
+    .select()
+    .single();
+  if (expense.error) throw expense.error;
 
   await writeAudit({
     userId: input.userId,
     action: "EXPENSE_ADDED",
     entityType: "ExpenseTransaction",
-    entityId: expense.id,
-    details: { expenseId: expense.expenseId, amount, category: input.category },
+    entityId: expense.data.id,
+    details: { expenseId: expense.data.expenseId, amount, category: input.category },
   });
-
-  return expense;
+  return expense.data;
 }
 
 export async function voidIncome(input: { id: string; reason: string; userId: string }) {
-  const income = await prisma.incomeTransaction.findUnique({
-    where: { id: input.id },
-    include: { feePayment: true },
-  });
-  if (!income) throw new Error("Income not found");
-  if (income.voidedAt) throw new Error("Income is already voided");
+  const income = await db()
+    .from("IncomeTransaction")
+    .select("*, feePayment:FeePayment(*)")
+    .eq("id", input.id)
+    .maybeSingle();
+  if (income.error) throw income.error;
+  if (!income.data) throw new Error("Income not found");
+  if (income.data.voidedAt) throw new Error("Income is already voided");
 
-  if (income.feePayment) {
-    await voidStudentPayment({
-      paymentId: income.feePayment.id,
-      reason: input.reason,
-      userId: input.userId,
-    });
+  const linkedPayment = Array.isArray(income.data.feePayment) ? income.data.feePayment[0] : income.data.feePayment;
+  if (linkedPayment) {
+    await voidStudentPayment({ paymentId: linkedPayment.id, reason: input.reason, userId: input.userId });
     return;
   }
 
-  await prisma.incomeTransaction.update({
-    where: { id: income.id },
-    data: {
-      voidedAt: new Date(),
+  const stamp = nowIso();
+  const { error } = await db()
+    .from("IncomeTransaction")
+    .update({
+      voidedAt: stamp,
       voidedById: input.userId,
       voidReason: input.reason,
+      updatedAt: stamp,
       updatedById: input.userId,
-    },
-  });
+    })
+    .eq("id", income.data.id);
+  if (error) throw error;
 
   await writeAudit({
     userId: input.userId,
     action: "INCOME_VOIDED",
     entityType: "IncomeTransaction",
-    entityId: income.id,
+    entityId: income.data.id,
     details: { reason: input.reason },
   });
 }
 
 export async function voidExpense(input: { id: string; reason: string; userId: string }) {
-  const expense = await prisma.expenseTransaction.findUnique({
-    where: { id: input.id },
-    include: { salaryPayment: true },
-  });
-  if (!expense) throw new Error("Expense not found");
-  if (expense.voidedAt) throw new Error("Expense is already voided");
+  const expense = await db()
+    .from("ExpenseTransaction")
+    .select("*, salaryPayment:SalaryPayment(*)")
+    .eq("id", input.id)
+    .maybeSingle();
+  if (expense.error) throw expense.error;
+  if (!expense.data) throw new Error("Expense not found");
+  if (expense.data.voidedAt) throw new Error("Expense is already voided");
 
-  if (expense.salaryPayment) {
+  const linkedPayment = Array.isArray(expense.data.salaryPayment)
+    ? expense.data.salaryPayment[0]
+    : expense.data.salaryPayment;
+  if (linkedPayment) {
     const { voidSalaryPayment } = await import("@/lib/salary");
-    await voidSalaryPayment({
-      paymentId: expense.salaryPayment.id,
-      reason: input.reason,
-      userId: input.userId,
-    });
+    await voidSalaryPayment({ paymentId: linkedPayment.id, reason: input.reason, userId: input.userId });
     return;
   }
 
-  await prisma.expenseTransaction.update({
-    where: { id: expense.id },
-    data: {
-      voidedAt: new Date(),
+  const stamp = nowIso();
+  const { error } = await db()
+    .from("ExpenseTransaction")
+    .update({
+      voidedAt: stamp,
       voidedById: input.userId,
       voidReason: input.reason,
+      updatedAt: stamp,
       updatedById: input.userId,
-    },
-  });
+    })
+    .eq("id", expense.data.id);
+  if (error) throw error;
 
   await writeAudit({
     userId: input.userId,
     action: "EXPENSE_VOIDED",
     entityType: "ExpenseTransaction",
-    entityId: expense.id,
+    entityId: expense.data.id,
     details: { reason: input.reason },
   });
 }

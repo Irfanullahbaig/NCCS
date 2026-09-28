@@ -1,9 +1,9 @@
+import type { Role } from "@/lib/enums";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
-import type { Role } from "@prisma/client";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { can, type Permission } from "@/lib/permissions";
 
 const COOKIE = "nccs_session";
@@ -50,7 +50,12 @@ export async function destroySession() {
 }
 
 export async function authenticate(email: string, password: string) {
-  const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+  const { data: user, error } = await db()
+    .from("User")
+    .select("id, email, name, role, isActive, passwordHash")
+    .eq("email", email.toLowerCase())
+    .maybeSingle();
+  if (error) throw error;
   if (!user || !user.isActive) return null;
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) return null;

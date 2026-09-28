@@ -60,6 +60,11 @@ export const EMPLOYMENT_LABELS = {
   TERMINATED: "Terminated",
 } as const;
 
+export const FACULTY_TYPE_LABELS = {
+  PERMANENT: "Permanent",
+  VISITING: "Visiting",
+} as const;
+
 export const STUDENT_STATUS_LABELS = {
   ACTIVE: "Active",
   INACTIVE: "Inactive",

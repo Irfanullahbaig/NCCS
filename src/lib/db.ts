@@ -1,70 +1,32 @@
-import { PrismaClient } from "@prisma/client";
+import type { PostgrestError } from "@supabase/supabase-js";
+import { createAdminClient, type AdminClient } from "@/lib/supabase/admin";
+import { createDummyClient, isDummyDataEnabled } from "@/lib/supabase/dummy";
 
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+const globalForDb = globalThis as unknown as { nccsAdmin?: AdminClient; nccsDummy?: AdminClient };
 
-function isPostgresUrl(value: string | undefined): value is string {
-  return Boolean(value?.startsWith("postgres"));
-}
-
-function appendQuery(url: string, param: string) {
-  const [name] = param.split("=");
-  if (!name || url.includes(`${name}=`)) return url;
-  return `${url}${url.includes("?") ? "&" : "?"}${param}`;
-}
-
-function resolveDatabaseUrl() {
-  const databaseUrl = process.env.DATABASE_URL;
-  const directUrl = process.env.DIRECT_URL;
-  const candidates = [databaseUrl, directUrl].filter(isPostgresUrl);
-
-  // Vercel must use the transaction pooler (port 6543). Session/direct 5432
-  // is for Prisma migrations and is often unreachable from serverless.
-  if (process.env.VERCEL) {
-    const pooled = candidates.find((value) => value.includes(":6543"));
-    if (pooled) return pooled;
+/** Hosted app uses the Supabase service-role client. Dummy JSON is desktop-only. */
+export function db() {
+  if (isDummyDataEnabled()) {
+    if (!globalForDb.nccsDummy) {
+      globalForDb.nccsDummy = createDummyClient();
+    }
+    return globalForDb.nccsDummy;
   }
-
-  return candidates[0] ?? "";
-}
-
-function withConnectParams(url: string) {
-  if (!url) return url;
-  let next = url;
-  if (next.includes(":6543")) {
-    next = appendQuery(next, "pgbouncer=true");
-    if (process.env.VERCEL) next = appendQuery(next, "connection_limit=1");
+  if (!globalForDb.nccsAdmin) {
+    globalForDb.nccsAdmin = createAdminClient();
   }
-  return appendQuery(next, "connect_timeout=10");
+  return globalForDb.nccsAdmin;
 }
 
-function createPrismaClient() {
-  const url = withConnectParams(resolveDatabaseUrl());
-  return new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
-    ...(url ? { datasources: { db: { url } } } : {}),
-  });
+export function newId() {
+  return crypto.randomUUID();
 }
 
-function getPrisma() {
-  if (!globalForPrisma.prisma) {
-    globalForPrisma.prisma = createPrismaClient();
-  }
-  return globalForPrisma.prisma;
+export function nowIso(value: Date | string = new Date()) {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
-export const prisma = new Proxy({} as PrismaClient, {
-  get(_target, prop, receiver) {
-    if (prop === "then") return undefined;
-    const client = getPrisma();
-    const value = Reflect.get(client, prop, receiver);
-    return typeof value === "function" ? value.bind(client) : value;
-  },
-});
-
-export async function reconnectPrisma() {
-  if (globalForPrisma.prisma) {
-    await globalForPrisma.prisma.$disconnect();
-    globalForPrisma.prisma = undefined;
-  }
-  await getPrisma().$connect();
+export function throwIfError<T>(result: { data: T; error: PostgrestError | null }): T {
+  if (result.error) throw result.error;
+  return result.data;
 }

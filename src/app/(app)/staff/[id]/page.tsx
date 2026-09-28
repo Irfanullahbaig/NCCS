@@ -1,12 +1,15 @@
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { prisma } from "@/lib/db";
-import { formatPKR, fullName, currentMonthYear, toDateInput } from "@/lib/utils";
+import { db } from "@/lib/db";
+import { formatDate, formatPKR, fullName, currentMonthYear, toDateInput, monthLabel } from "@/lib/utils";
 import { Card, PageHeader } from "@/components/ui";
-import { EMPLOYMENT_LABELS, GENDER_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/constants";
+import { EMPLOYMENT_LABELS, FACULTY_TYPE_LABELS, GENDER_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/constants";
 import { FeeBadge } from "@/components/badges";
 import { EditSalaryPaymentButton, RecordSalaryButton, VoidSalaryButton } from "@/components/forms";
+
+const staffSelect =
+  "*, subjects:StaffSubject(*, subject:Subject(*)), assignments:StaffAssignment(*, class:Class(*, program:Program(*))), classTeacherOf:Class!Class_classTeacherId_fkey(*, program:Program(*)), salaryRecords:SalaryRecord(*, payments:SalaryPayment(*))";
 
 export default async function StaffProfilePage({
   params,
@@ -15,19 +18,19 @@ export default async function StaffProfilePage({
 }) {
   const user = await requirePermission("staff.view");
   const { id } = await params;
-  const staff = await prisma.staff.findUnique({
-    where: { id },
-    include: {
-      subjects: { include: { subject: true } },
-      assignments: { include: { class: { include: { program: true } } } },
-      classTeacherOf: { include: { program: true } },
-      salaryRecords: {
-        include: { payments: { where: { voidedAt: null }, orderBy: { paymentDate: "desc" } } },
-        orderBy: [{ year: "desc" }, { month: "desc" }],
-      },
-    },
-  });
+  const staffRes = await db().from("Staff").select(staffSelect).eq("id", id).maybeSingle();
+  if (staffRes.error) throw staffRes.error;
+  const staff = staffRes.data;
   if (!staff) notFound();
+
+  staff.salaryRecords = (staff.salaryRecords ?? [])
+    .map((record) => ({
+      ...record,
+      payments: (record.payments ?? [])
+        .filter((payment) => !payment.voidedAt)
+        .sort((a, b) => String(b.paymentDate).localeCompare(String(a.paymentDate))),
+    }))
+    .sort((a, b) => b.year - a.year || b.month - a.month);
 
   const { month, year } = currentMonthYear();
   const currentRecord = staff.salaryRecords.find((record) => record.month === month && record.year === year);
@@ -45,7 +48,7 @@ export default async function StaffProfilePage({
     <div>
       <PageHeader
         title={fullName(staff.firstName, staff.lastName)}
-        subtitle={`${staff.staffId} · ${EMPLOYMENT_LABELS[staff.employmentStatus]}`}
+        subtitle={`${staff.staffId} · ${FACULTY_TYPE_LABELS[staff.facultyType ?? "PERMANENT"]} · ${EMPLOYMENT_LABELS[staff.employmentStatus]}`}
         actions={
           can(user.role, "salaries.record") && staff.salaryAmount > 0 ? (
             <RecordSalaryButton
@@ -62,7 +65,8 @@ export default async function StaffProfilePage({
         <Card title="HR details">
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
             <Item label="Qualification" value={staff.qualification} />
-            <Item label="Joined" value={staff.dateOfJoining.toLocaleDateString()} />
+            <Item label="Faculty" value={FACULTY_TYPE_LABELS[staff.facultyType ?? "PERMANENT"]} />
+            <Item label="Joined" value={formatDate(staff.dateOfJoining)} />
             <Item label="Gender" value={GENDER_LABELS[staff.gender]} />
             <Item label="Contact" value={staff.contactNumber} />
             <Item label="Emergency" value={staff.emergencyContact || "—"} />
@@ -101,7 +105,7 @@ export default async function StaffProfilePage({
               <tbody>
                 {staff.salaryRecords.map((record) => (
                   <tr key={record.id}>
-                    <td>{new Date(record.year, record.month - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" })}</td>
+                    <td>{monthLabel(record.month, record.year)}</td>
                     <td>{formatPKR(record.expectedAmount)}</td>
                     <td>{formatPKR(record.paidAmount)}</td>
                     <td>{formatPKR(record.remainingAmount)}</td>
@@ -132,9 +136,9 @@ export default async function StaffProfilePage({
               <tbody>
                 {payments.map(({ payment, record }) => (
                   <tr key={payment.id}>
-                    <td>{new Date(record.year, record.month - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" })}</td>
+                    <td>{monthLabel(record.month, record.year)}</td>
                     <td>{formatPKR(payment.amount)}</td>
-                    <td>{payment.paymentDate.toLocaleDateString()}</td>
+                    <td>{formatDate(payment.paymentDate)}</td>
                     <td>{PAYMENT_METHOD_LABELS[payment.paymentMethod]}</td>
                     <td>{payment.referenceNumber || "—"}</td>
                     <td className="space-x-2">

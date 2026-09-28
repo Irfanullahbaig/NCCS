@@ -28,14 +28,14 @@ export default async function ClassDashboardPage({
       remaining: row.remaining,
       fatherName: row.student.fatherName,
       registrationNo: row.student.registrationNo,
-      classLabel: `${schoolClass.name} ${schoolClass.program.name}`,
+      classLabel: schoolClass.name,
     }));
 
   return (
     <div>
       <PageHeader
-        title={`${schoolClass.name} — ${schoolClass.program.name}`}
-        subtitle={`${schoolClass.academicYear.name} · ${monthLabel(month, year)} · Class teacher: ${schoolClass.classTeacher ? fullName(schoolClass.classTeacher.firstName, schoolClass.classTeacher.lastName) : "Unassigned"}`}
+        title={schoolClass.name}
+        subtitle={`${monthLabel(month, year)} · Class teacher: ${schoolClass.classTeacher ? fullName(schoolClass.classTeacher.firstName, schoolClass.classTeacher.lastName) : "Unassigned"}`}
         actions={can(user.role, "fees.record") && paymentStudents.length ? <RecordPaymentButton students={paymentStudents} /> : null}
       />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

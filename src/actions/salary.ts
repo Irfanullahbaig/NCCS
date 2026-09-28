@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { PaymentMethod } from "@prisma/client";
+import { PaymentMethod } from "@/lib/enums";
 import { requirePermission } from "@/lib/auth";
 import { parseDateInput } from "@/lib/utils";
 import { recordSalaryPayment, updateSalaryPayment, voidSalaryPayment } from "@/lib/salary";

@@ -1,64 +1,43 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { prisma } from "@/lib/db";
-import { formatPKR, fullName } from "@/lib/utils";
+import { db } from "@/lib/db";
+import { fullName } from "@/lib/utils";
 import { PageHeader, EmptyState, Card } from "@/components/ui";
 import { AddClassButtons, DeleteClassButton, EditClassButton, EditSubjectButton, DeleteSubjectButton } from "@/components/forms";
 
 export default async function ClassesPage() {
   const user = await requirePermission("classes.view");
-  const [classes, programs, years, teachers, subjects] = await Promise.all([
-    prisma.class.findMany({
-      include: {
-        program: true,
-        academicYear: true,
-        classTeacher: true,
-        subjects: { include: { subject: true } },
-        _count: { select: { students: { where: { deletedAt: null } } } },
-      },
-      orderBy: [{ name: "asc" }],
-    }),
-    prisma.program.findMany({ orderBy: { name: "asc" } }),
-    prisma.academicYear.findMany({ orderBy: { startDate: "desc" } }),
-    prisma.staff.findMany({
-      where: { employmentStatus: { in: ["ACTIVE", "ON_LEAVE"] } },
-      orderBy: { firstName: "asc" },
-    }),
-    prisma.subject.findMany({ orderBy: { name: "asc" } }),
+  const [classesRes, teachersRes, subjectsRes] = await Promise.all([
+    db()
+      .from("Class")
+      .select("*, classTeacher:Staff(*), subjects:ClassSubject(*, subject:Subject(*)), students:Student(id, deletedAt)")
+      .order("name", { ascending: true }),
+    db().from("Staff").select("*").in("employmentStatus", ["ACTIVE", "ON_LEAVE"]).order("firstName", { ascending: true }),
+    db().from("Subject").select("*").order("name", { ascending: true }),
   ]);
+  for (const result of [classesRes, teachersRes, subjectsRes]) {
+    if (result.error) throw result.error;
+  }
 
-  const formProps = {
-    programs: programs.map((program) => ({ id: program.id, name: program.name })),
-    years: years.map((year) => ({ id: year.id, name: year.name })),
-    teachers: teachers.map((teacher) => ({ id: teacher.id, name: fullName(teacher.firstName, teacher.lastName) })),
-    subjects: subjects.map((subject) => ({ id: subject.id, name: subject.name })),
-  };
+  const teachers = (teachersRes.data ?? []).map((teacher) => ({
+    id: teacher.id,
+    name: fullName(teacher.firstName, teacher.lastName),
+  }));
+  const subjects = subjectsRes.data ?? [];
+  const classes = (classesRes.data ?? []).map((schoolClass) => ({
+    ...schoolClass,
+    _count: { students: (schoolClass.students ?? []).filter((student) => !student.deletedAt).length },
+  }));
 
   return (
     <div>
       <PageHeader
-        title="Classes & Programs"
-        subtitle="Create classes before assigning students and teachers. Each class has its own fee dashboard."
-        actions={can(user.role, "classes.create") ? <AddClassButtons {...formProps} /> : null}
+        title="Classes"
+        subtitle="Create a class or grade, then add the subjects taught in it."
+        actions={can(user.role, "classes.create") ? <AddClassButtons teachers={teachers} /> : null}
       />
-      <div className="mb-6 grid gap-4 md:grid-cols-3">
-        <Card title="Programs">
-          <div className="flex flex-wrap gap-2">
-            {programs.map((program) => (
-              <span key={program.id} className="rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-navy">
-                {program.name}
-              </span>
-            ))}
-          </div>
-        </Card>
-        <Card title="Academic years">
-          {years.map((year) => (
-            <p key={year.id} className="text-sm text-slate-600">
-              {year.name} {year.isActive ? <span className="text-teal">(active)</span> : null}
-            </p>
-          ))}
-        </Card>
+      <div className="mb-6">
         <Card title="Subjects">
           {subjects.length ? (
             <div className="space-y-2">
@@ -80,7 +59,7 @@ export default async function ClassesPage() {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-slate-600">None yet</p>
+            <p className="text-sm text-slate-600">Add subjects while creating a class, or use Add subject.</p>
           )}
         </Card>
       </div>
@@ -91,30 +70,24 @@ export default async function ClassesPage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <Link href={`/classes/${schoolClass.id}`} className="text-lg font-semibold text-navy">
-                    {schoolClass.name} — {schoolClass.program.name}
+                    {schoolClass.name}
                   </Link>
-                  <p className="text-sm text-slate-500">{schoolClass.academicYear.name} · {schoolClass.code}</p>
+                  <p className="text-sm text-slate-500">{schoolClass.code}</p>
                 </div>
                 {can(user.role, "classes.edit") ? (
                   <div className="flex shrink-0 gap-1">
                     <EditClassButton
-                      programs={formProps.programs}
-                      years={formProps.years}
-                      teachers={formProps.teachers}
-                      subjects={formProps.subjects}
+                      teachers={teachers}
                       initial={{
                         id: schoolClass.id,
                         name: schoolClass.name,
-                        programId: schoolClass.programId,
-                        academicYearId: schoolClass.academicYearId,
                         classTeacherId: schoolClass.classTeacherId,
-                        feeAmount: schoolClass.feeAmount,
                         status: schoolClass.status,
-                        subjectIds: schoolClass.subjects.map((row) => row.subjectId),
+                        subjectNames: schoolClass.subjects.map((row) => row.subject.name),
                       }}
                     />
                     {can(user.role, "classes.delete") ? (
-                      <DeleteClassButton id={schoolClass.id} name={`${schoolClass.name} ${schoolClass.program.name}`} />
+                      <DeleteClassButton id={schoolClass.id} name={schoolClass.name} />
                     ) : null}
                   </div>
                 ) : null}
@@ -123,10 +96,6 @@ export default async function ClassesPage() {
                 <div>
                   <dt className="text-slate-500">Students</dt>
                   <dd className="font-semibold">{schoolClass._count.students}</dd>
-                </div>
-                <div>
-                  <dt className="text-slate-500">Fee</dt>
-                  <dd className="font-semibold">{formatPKR(schoolClass.feeAmount)}</dd>
                 </div>
                 <div className="col-span-2">
                   <dt className="text-slate-500">Class teacher</dt>
@@ -141,7 +110,7 @@ export default async function ClassesPage() {
           ))}
         </div>
       ) : (
-        <EmptyState title="No classes yet" description="Admin can create unlimited classes and programs, such as Grade 10 — ICS." />
+        <EmptyState title="No classes yet" description="Create a class or grade and add its subjects." />
       )}
     </div>
   );

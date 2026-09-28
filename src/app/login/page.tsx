@@ -1,6 +1,12 @@
 import { SCHOOL_FULL_NAME } from "@/lib/constants";
+import { getSupabaseSecretKey, getSupabaseUrl } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
+
+function isDatabaseConfigured() {
+  if (process.env.NCCS_USE_DUMMY_DATA === "1") return true;
+  return Boolean(getSupabaseUrl() && getSupabaseSecretKey());
+}
 
 function LoginLogo({
   align = "start",
@@ -32,6 +38,7 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string; next?: string }>;
 }) {
   const params = await searchParams;
+  const databaseConfigured = isDatabaseConfigured();
   return (
     <div className="grid min-h-screen min-w-0 lg:grid-cols-2">
       <section className="relative hidden min-w-0 overflow-hidden bg-navy p-8 text-white sm:p-10 lg:flex lg:flex-col">
@@ -56,31 +63,34 @@ export default async function LoginPage({
           {params.error === "invalid" ? (
             <p className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">Invalid email or password.</p>
           ) : null}
-          {params.error === "server" ? (
+          {!databaseConfigured ? (
             <p className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              Could not connect to the database. Check the Supabase Postgres URL in your environment variables, then try again.
+              Database is not configured. In <code className="font-medium">.env.local</code> (and Vercel), set{" "}
+              <code className="font-medium">NEXT_PUBLIC_SUPABASE_URL</code> to{" "}
+              <code className="font-medium">https://YOUR_PROJECT_REF.supabase.co</code> and{" "}
+              <code className="font-medium">SUPABASE_SECRET_KEY</code> to the secret / service_role key from Project
+              Settings → API Keys. Do not use a <code className="font-medium">postgresql://</code> connection string.
+              Restart the app after saving.
+            </p>
+          ) : null}
+          {databaseConfigured && params.error === "server" ? (
+            <p className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              Could not reach Supabase. Confirm the URL and secret key belong to the new project, the NCCS schema SQL
+              has been run, then restart or redeploy.
             </p>
           ) : null}
           <form action="/api/auth/login" method="post" className="mt-8 space-y-4">
             <input type="hidden" name="next" value={params.next ?? "/"} />
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Email</label>
-              <input name="email" type="email" required className="h-11 w-full rounded-xl border border-slate-200 px-3" defaultValue="admin@nccs.edu" />
+              <input name="email" type="email" required autoComplete="username" className="h-11 w-full rounded-xl border border-slate-200 px-3" />
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Password</label>
-              <input name="password" type="password" required className="h-11 w-full rounded-xl border border-slate-200 px-3" />
+              <input name="password" type="password" required autoComplete="current-password" className="h-11 w-full rounded-xl border border-slate-200 px-3" />
             </div>
             <button className="h-11 w-full rounded-xl bg-teal font-medium text-white hover:bg-teal-500">Sign in</button>
           </form>
-          <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-            <p className="font-semibold text-navy">Demo accounts</p>
-            <ul className="mt-2 space-y-1">
-              <li>Admin — admin@nccs.edu / Admin@123</li>
-              <li>Principal — principal@nccs.edu / Principal@123</li>
-              <li>Accountant / HR — accountant@nccs.edu / Accountant@123</li>
-            </ul>
-          </div>
         </div>
       </section>
     </div>

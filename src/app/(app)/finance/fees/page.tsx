@@ -2,7 +2,7 @@ import Link from "next/link";
 import { AlertCircle, BadgePercent, Banknote, CircleDollarSign, Clock, Split, Users, Wallet } from "lucide-react";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { ensureCurrentMonthFees } from "@/lib/finance";
 import { currentMonthYear, formatPKR, fullName, monthLabel } from "@/lib/utils";
 import { PageHeader, EmptyState, ViewOnlyBadge, StatCard } from "@/components/ui";
@@ -13,11 +13,14 @@ export default async function FeesPage() {
   const user = await requirePermission("fees.view");
   await ensureCurrentMonthFees();
   const { month, year } = currentMonthYear();
-  const records = await prisma.feeRecord.findMany({
-    where: { month, year },
-    include: { student: { include: { class: { include: { program: true } } } } },
-    orderBy: { remainingAmount: "desc" },
-  });
+  const recordsRes = await db()
+    .from("FeeRecord")
+    .select("*, student:Student(*, class:Class(*, program:Program(*)))")
+    .eq("month", month)
+    .eq("year", year)
+    .order("remainingAmount", { ascending: false });
+  if (recordsRes.error) throw recordsRes.error;
+  const records = recordsRes.data ?? [];
 
   const students = records
     .filter((record) => record.status !== "WAIVED" && record.remainingAmount > 0)

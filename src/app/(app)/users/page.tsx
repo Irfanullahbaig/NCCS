@@ -1,12 +1,15 @@
 import { requirePermission } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui";
+import { formatDate } from "@/lib/utils";
 import { AddUserButton } from "@/components/forms";
 import { ROLE_LABELS } from "@/lib/constants";
 
 export default async function UsersPage() {
   await requirePermission("users.manage");
-  const users = await prisma.user.findMany({ orderBy: { createdAt: "asc" } });
+  const usersRes = await db().from("User").select("*").order("createdAt", { ascending: true });
+  if (usersRes.error) throw usersRes.error;
+  const users = usersRes.data ?? [];
 
   return (
     <div>
@@ -34,7 +37,7 @@ export default async function UsersPage() {
                   <td>{user.email}</td>
                   <td>{ROLE_LABELS[user.role]}</td>
                   <td>{user.isActive ? "Active" : "Inactive"}</td>
-                  <td>{user.createdAt.toLocaleDateString()}</td>
+                  <td>{formatDate(user.createdAt)}</td>
                 </tr>
               ))}
             </tbody>

@@ -1,7 +1,7 @@
 import { requirePermission } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { db } from "@/lib/db";
 import { SCHOOL_FULL_NAME } from "@/lib/constants";
-import { currentMonthYear, formatPKR, fullName } from "@/lib/utils";
+import { currentMonthYear, formatDateTime, formatPKR, fullName } from "@/lib/utils";
 import { PrintToolbar } from "@/components/print-toolbar";
 
 export default async function PrintReportPage({
@@ -13,25 +13,45 @@ export default async function PrintReportPage({
   const { type = "students" } = await searchParams;
   const { month, year } = currentMonthYear();
   const feeTypes = ["outstanding", "class-fees", "fee-collection", "payment-history"];
-  const rows = feeTypes.includes(type)
-    ? await prisma.feeRecord.findMany({
-        where: { month, year, ...(type === "outstanding" ? { remainingAmount: { gt: 0 } } : {}) },
-        include: { student: { include: { class: { include: { program: true } } } } },
-        orderBy: { remainingAmount: "desc" },
-      })
-    : [];
-  const students = feeTypes.includes(type)
-    ? []
-    : await prisma.student.findMany({
-        where: {
-          deletedAt: null,
-          ...(type === "scholarship" ? { studentType: "SCHOLARSHIP" } : {}),
-          ...(type === "need-based" ? { studentType: "NEED_BASED" } : {}),
-          ...(type === "self" ? { studentType: "SELF" } : {}),
-        },
-        include: { class: { include: { program: true } } },
-        orderBy: { firstName: "asc" },
-      });
+  let rows: Array<{
+    id: string;
+    expectedAmount: number;
+    paidAmount: number;
+    remainingAmount: number;
+    student: { firstName: string; lastName: string; studentType: string; class: { name: string; program: { name: string } } };
+  }> = [];
+  let students: Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    studentType: string;
+    feeAmount: number;
+    class: { name: string; program: { name: string } };
+  }> = [];
+
+  if (feeTypes.includes(type)) {
+    const recordsRes = await db()
+      .from("FeeRecord")
+      .select("*, student:Student(*, class:Class(*, program:Program(*)))")
+      .eq("month", month)
+      .eq("year", year)
+      .order("remainingAmount", { ascending: false });
+    if (recordsRes.error) throw recordsRes.error;
+    rows = (recordsRes.data ?? []).filter((record) => (type === "outstanding" ? record.remainingAmount > 0 : true));
+  } else {
+    const studentsRes = await db()
+      .from("Student")
+      .select("*, class:Class(*, program:Program(*))")
+      .is("deletedAt", null)
+      .order("firstName", { ascending: true });
+    if (studentsRes.error) throw studentsRes.error;
+    students = (studentsRes.data ?? []).filter((student) => {
+      if (type === "scholarship") return student.studentType === "SCHOLARSHIP";
+      if (type === "need-based") return student.studentType === "NEED_BASED";
+      if (type === "self") return student.studentType === "SELF";
+      return true;
+    });
+  }
 
   return (
     <div className="mx-auto max-w-5xl bg-white p-8 print:max-w-none">
@@ -40,7 +60,7 @@ export default async function PrintReportPage({
         <img src="/nccs-logo-mark.png" alt="NCCS" className="mb-3 h-10 w-auto" />
         <h1 className="text-2xl font-semibold text-navy">{SCHOOL_FULL_NAME}</h1>
         <p className="text-sm text-slate-500">
-          Report: {type} · Generated {new Date().toLocaleString()}
+          Report: {type} · Generated {formatDateTime(new Date())}
         </p>
       </header>
       <div className="table-wrap">

@@ -19,6 +19,8 @@
 
 # production
 /build
+/dist
+/release
 
 # misc
 .DS_Store
@@ -33,6 +35,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+
+# local dummy data
+/.data/
 
 # sqlite
 /prisma/dev.db
