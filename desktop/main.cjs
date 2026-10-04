@@ -3,7 +3,10 @@ const { spawn } = require("child_process");
 const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
+const os = require("os");
 const path = require("path");
+
+const ADMIN_LICENSE_KEY = "Behance.net1";
 
 const TABLES = [
   "User",
@@ -61,7 +64,7 @@ function loadSecrets() {
     AUTH_SECRET: crypto.randomBytes(32).toString("hex"),
     NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: crypto.randomBytes(32).toString("base64"),
   };
-  fs.writeFileSync(file, JSON.stringify(secrets, null, 2));
+  saveConfig(secrets);
   return secrets;
 }
 
@@ -75,11 +78,57 @@ function needsSetup() {
   }
 }
 
+function machineStamp() {
+  let username = "user";
+  try {
+    username = os.userInfo().username;
+  } catch {
+    username = "user";
+  }
+  return `${os.hostname()}|${username}|${process.platform}|${process.arch}`;
+}
+
+function expectedLicenseFingerprint() {
+  return crypto.createHash("sha256").update(`${ADMIN_LICENSE_KEY}\n${machineStamp()}`).digest("hex");
+}
+
+function saveConfig(secrets) {
+  fs.writeFileSync(configPath(), JSON.stringify(secrets, null, 2));
+}
+
+function isLicensed() {
+  try {
+    if (!fs.existsSync(configPath())) return false;
+    const secrets = JSON.parse(fs.readFileSync(configPath(), "utf8"));
+    const expected = Buffer.from(expectedLicenseFingerprint());
+    const actual = Buffer.from(String(secrets.licenseFingerprint ?? ""));
+    if (expected.length !== actual.length) return false;
+    return crypto.timingSafeEqual(expected, actual);
+  } catch {
+    return false;
+  }
+}
+
+function keysMatch(input) {
+  const provided = Buffer.from(String(input ?? "").trim());
+  const expected = Buffer.from(ADMIN_LICENSE_KEY);
+  if (provided.length !== expected.length) return false;
+  return crypto.timingSafeEqual(provided, expected);
+}
+
+function unlockLicense() {
+  const secrets = loadSecrets();
+  secrets.licenseFingerprint = expectedLicenseFingerprint();
+  secrets.licensedAt = new Date().toISOString();
+  saveConfig(secrets);
+}
+
 function emptyStore() {
   return Object.fromEntries(TABLES.map((table) => [table, []]));
 }
 
 function createLocalAdmin({ name, email, password }) {
+  if (!isLicensed()) return { ok: false, error: "Enter the Administrator License Key first." };
   const bcrypt = require("bcryptjs");
   const trimmedName = String(name ?? "").trim();
   const trimmedEmail = String(email ?? "").trim().toLowerCase();
@@ -241,6 +290,12 @@ function createWindow(url, { setup = false } = {}) {
       sandbox: true,
     },
   });
+  if (setup) {
+    mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    mainWindow.webContents.on("will-navigate", (event, nextUrl) => {
+      if (!nextUrl.startsWith("file://")) event.preventDefault();
+    });
+  }
   mainWindow.loadURL(url);
   mainWindow.on("closed", () => {
     mainWindow = undefined;
@@ -279,8 +334,26 @@ if (!gotLock) {
     }
   });
 
+  ipcMain.handle("nccs:setup-state", () => ({
+    licensed: isLicensed(),
+    needsSetup: needsSetup(),
+  }));
+
+  ipcMain.handle("nccs:verify-license", async (_event, key) => {
+    if (!keysMatch(key)) {
+      return { ok: false, error: "Invalid license key. Check the key and try again." };
+    }
+    unlockLicense();
+    if (needsSetup()) return { ok: true, next: "setup" };
+    await openApp();
+    return { ok: true, next: "app" };
+  });
+
   ipcMain.handle("nccs:create-admin", async (_event, payload) => {
     try {
+      if (!isLicensed()) {
+        return { ok: false, error: "Enter the Administrator License Key first." };
+      }
       const result = createLocalAdmin(payload ?? {});
       if (result.ok) await openApp();
       return result;
@@ -291,7 +364,7 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     try {
-      if (needsSetup() && !process.env.NCCS_DESKTOP_URL) {
+      if (!process.env.NCCS_DESKTOP_URL && needsSetup()) {
         createWindow(`file://${path.join(__dirname, "setup.html")}`, { setup: true });
         return;
       }

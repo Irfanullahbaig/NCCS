@@ -57,7 +57,7 @@ npm run desktop:win
 npm run desktop:mac
 ```
 
-On first launch, create an administrator account.
+On first launch, enter the Administrator License Key, then create an administrator account. The key is stored on this computer and is not asked again until the app is installed on another machine.
 
 ## Critical workflow
 

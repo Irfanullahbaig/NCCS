@@ -22,6 +22,7 @@
         padding: 28px 24px 24px;
         box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
       }
+      .hidden { display: none; }
       .mark {
         width: 72px;
         height: 72px;
@@ -36,15 +37,14 @@
         font-weight: 700;
       }
       h1 { margin: 0; text-align: center; font-size: 24px; }
-      p { margin: 8px 0 20px; text-align: center; color: #5b6b7c; font-family: system-ui, sans-serif; font-size: 14px; }
-      label { display: block; margin: 12px 0 6px; font-family: system-ui, sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5b6b7c; }
+      p { margin: 8px 0 20px; text-align: center; color: #5b6b7c; font-size: 14px; }
+      label { display: block; margin: 12px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5b6b7c; }
       input {
         width: 100%;
         height: 42px;
         border: 1px solid #d7dee6;
         border-radius: 12px;
         padding: 0 12px;
-        font-family: system-ui, sans-serif;
         font-size: 14px;
       }
       button {
@@ -55,17 +55,26 @@
         border-radius: 12px;
         background: #14b8a6;
         color: #fff;
-        font-family: system-ui, sans-serif;
         font-size: 15px;
         font-weight: 600;
         cursor: pointer;
       }
       button:disabled { opacity: 0.6; cursor: default; }
-      .error { min-height: 20px; margin: 10px 0 0; color: #be123c; font-family: system-ui, sans-serif; font-size: 13px; }
+      .error { min-height: 20px; margin: 10px 0 0; color: #be123c; font-size: 13px; text-align: center; }
     </style>
   </head>
   <body>
-    <form class="card" id="form">
+    <form class="card" id="license-form">
+      <div class="mark">NCCS</div>
+      <h1>Administrator license</h1>
+      <p>Enter the Administrator License Key for this computer. This is required once per installation.</p>
+      <label for="license">License key</label>
+      <input id="license" name="license" type="password" required autocomplete="off" spellcheck="false" />
+      <div class="error" id="license-error"></div>
+      <button type="submit" id="license-submit">Verify key</button>
+    </form>
+
+    <form class="card hidden" id="admin-form">
       <div class="mark">NCCS</div>
       <h1>Set up this computer</h1>
       <p>Create the first administrator for this local NCCS installation. Data stays on this machine.</p>
@@ -75,30 +84,69 @@
       <input id="email" name="email" type="email" required autocomplete="username" />
       <label for="password">Password</label>
       <input id="password" name="password" type="password" required minlength="8" autocomplete="new-password" />
-      <div class="error" id="error"></div>
-      <button type="submit" id="submit">Create local admin</button>
+      <div class="error" id="admin-error"></div>
+      <button type="submit" id="admin-submit">Create local admin</button>
     </form>
+
     <script>
-      const form = document.getElementById("form");
-      const error = document.getElementById("error");
-      const submit = document.getElementById("submit");
-      form.addEventListener("submit", async (event) => {
+      const licenseForm = document.getElementById("license-form");
+      const adminForm = document.getElementById("admin-form");
+      const licenseError = document.getElementById("license-error");
+      const adminError = document.getElementById("admin-error");
+      const licenseSubmit = document.getElementById("license-submit");
+      const adminSubmit = document.getElementById("admin-submit");
+
+      function showAdmin() {
+        licenseForm.classList.add("hidden");
+        adminForm.classList.remove("hidden");
+      }
+
+      async function boot() {
+        try {
+          const state = await window.nccsDesktop.setupState();
+          if (state?.licensed) showAdmin();
+        } catch {
+          licenseError.textContent = "Could not start setup.";
+        }
+      }
+
+      licenseForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        error.textContent = "";
-        submit.disabled = true;
+        licenseError.textContent = "";
+        licenseSubmit.disabled = true;
+        try {
+          const result = await window.nccsDesktop.verifyLicense(document.getElementById("license").value);
+          if (!result?.ok) {
+            licenseError.textContent = result?.error || "Invalid license key.";
+            return;
+          }
+          if (result.next === "setup") showAdmin();
+        } catch (err) {
+          licenseError.textContent = err instanceof Error ? err.message : "Invalid license key.";
+        } finally {
+          licenseSubmit.disabled = false;
+        }
+      });
+
+      adminForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        adminError.textContent = "";
+        adminSubmit.disabled = true;
         try {
           const result = await window.nccsDesktop.createAdmin({
             name: document.getElementById("name").value,
             email: document.getElementById("email").value,
             password: document.getElementById("password").value,
           });
-          if (!result?.ok) error.textContent = result?.error || "Could not create the administrator.";
+          if (!result?.ok) adminError.textContent = result?.error || "Could not create the administrator.";
         } catch (err) {
-          error.textContent = err instanceof Error ? err.message : "Could not create the administrator.";
+          adminError.textContent = err instanceof Error ? err.message : "Could not create the administrator.";
         } finally {
-          submit.disabled = false;
+          adminSubmit.disabled = false;
         }
       });
+
+      boot();
     </script>
   </body>
 </html>
