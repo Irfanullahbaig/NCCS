@@ -51,7 +51,7 @@ export default async function SalariesPage({
     <div>
       <PageHeader
         title="Payroll"
-        subtitle={`Assigned monthly salary versus amount paid for ${monthLabel(month, year)}. Advances reduce net salary without double-counting expenses.`}
+        subtitle={`Assigned monthly salary versus amount paid for ${monthLabel(month, year)}. Enter a new current salary when recording payment if there is an increment or adjustment.`}
         actions={can(user.role, "salaries.record") ? (
           <>
             <RecordSalaryButton teachers={teachers} defaultMonth={month} defaultYear={year} defaultKind="ADVANCE" label="Record advance" />

@@ -82,20 +82,44 @@ export async function createIncomeAction(formData: FormData) {
     const paymentMethod = String(formData.get("paymentMethod") ?? "") as PaymentMethod;
     const referenceNumber = String(formData.get("referenceNumber") ?? "").trim();
     const notes = String(formData.get("notes") ?? "").trim();
+    const year = Number(formData.get("year") ?? 0);
+    const months = formData.getAll("months").map(Number).filter((month) => month >= 1 && month <= 12);
     if (!date || !category || !paymentMethod) return fail("Date, category, and payment method are required");
+    if (category === "STUDENT_FEE" && (!year || !months.length)) {
+      return fail("Select the fee year and at least one month");
+    }
 
-    await recordIncome({
-      date: parseDateInput(date),
-      amount,
-      category,
-      source: source || null,
-      studentId: studentId || null,
-      classId: classId || null,
-      paymentMethod,
-      referenceNumber: referenceNumber || null,
-      notes: notes || null,
-      userId: user.id,
-    });
+    if (category === "STUDENT_FEE") {
+      for (const month of months) {
+        await recordIncome({
+          date: parseDateInput(date),
+          amount,
+          category,
+          source: source || null,
+          studentId: studentId || null,
+          classId: classId || null,
+          paymentMethod,
+          referenceNumber: referenceNumber || null,
+          notes: notes || null,
+          month,
+          year,
+          userId: user.id,
+        });
+      }
+    } else {
+      await recordIncome({
+        date: parseDateInput(date),
+        amount,
+        category,
+        source: source || null,
+        studentId: studentId || null,
+        classId: classId || null,
+        paymentMethod,
+        referenceNumber: referenceNumber || null,
+        notes: notes || null,
+        userId: user.id,
+      });
+    }
     refreshFinance();
     return { ok: true as const };
   } catch (error) {

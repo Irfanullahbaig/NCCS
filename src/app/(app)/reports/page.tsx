@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 import { ensureCurrentMonthFees } from "@/lib/finance";
 import { currentMonthYear, formatDate, formatPKR, fullName } from "@/lib/utils";
 import { Card, PageHeader } from "@/components/ui";
-import { ReportPeriodLaunch } from "@/components/report-period";
+import { ReportPeriodLaunch, ProgressReportLaunch } from "@/components/report-period";
+import { getMonthlyStudentProgress } from "@/lib/progress";
 import { STUDENT_TYPE_LABELS, INCOME_CATEGORY_LABELS, EXPENSE_CATEGORY_LABELS, FACULTY_TYPE_LABELS } from "@/lib/constants";
 
 const REPORTS: Array<{ type: string; title: string; group: string; analytics?: boolean }> = [
@@ -14,6 +15,7 @@ const REPORTS: Array<{ type: string; title: string; group: string; analytics?: b
   { type: "scholarship", title: "Scholarship students", group: "Student reports" },
   { type: "need-based", title: "Need-based students", group: "Student reports" },
   { type: "self", title: "Self-financed students", group: "Student reports" },
+  { type: "student-progress", title: "Monthly student progress", group: "Student reports" },
   { type: "staff", title: "Staff list", group: "Staff reports" },
   { type: "assignments", title: "Class/subject assignments", group: "Staff reports" },
   { type: "joining", title: "Joining date report", group: "Staff reports" },
@@ -34,13 +36,20 @@ const REPORTS: Array<{ type: string; title: string; group: string; analytics?: b
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ type?: string }>;
+  searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const user = await requirePermission("reports.view");
   await ensureCurrentMonthFees();
-  const { type } = await searchParams;
+  const params = await searchParams;
+  const type = params.type;
   const groups = ["Student reports", "Staff reports", "Financial reports"];
   const visibleReports = REPORTS.filter((report) => !report.analytics || can(user.role, "finance.analytics"));
+  const classesRes = await db().from("Class").select("*, program:Program(*)").order("name", { ascending: true });
+  if (classesRes.error) throw classesRes.error;
+  const classes = (classesRes.data ?? []).map((item) => ({
+    id: item.id,
+    label: `${item.name} — ${item.program.name}`,
+  }));
 
   return (
     <div>
@@ -49,11 +58,14 @@ export default async function ReportsPage({
         subtitle="All figures come from the same student, class, and finance records used by the dashboards."
         actions={
           can(user.role, "reports.export") ? (
-            <ReportPeriodLaunch
-              types={visibleReports
-                .filter((report) => report.group === "Financial reports")
-                .map((report) => ({ type: report.type, title: report.title }))}
-            />
+            <div className="flex flex-wrap gap-2">
+              <ProgressReportLaunch classes={classes} />
+              <ReportPeriodLaunch
+                types={visibleReports
+                  .filter((report) => report.group === "Financial reports")
+                  .map((report) => ({ type: report.type, title: report.title }))}
+              />
+            </div>
           ) : null
         }
       />
@@ -79,7 +91,7 @@ export default async function ReportsPage({
       {type ? (
         <Card title={visibleReports.find((report) => report.type === type)?.title ?? "Report"} className="mt-6">
           {visibleReports.some((report) => report.type === type) ? (
-            <ReportPreview type={type} />
+            <ReportPreview type={type} params={params} />
           ) : (
             <p className="text-sm text-slate-500">You do not have access to this report.</p>
           )}
@@ -89,8 +101,51 @@ export default async function ReportsPage({
   );
 }
 
-async function ReportPreview({ type }: { type: string }) {
-  const { month, year } = currentMonthYear();
+async function ReportPreview({ type, params }: { type: string; params: Record<string, string | undefined> }) {
+  const fallback = currentMonthYear();
+  const month = Number(params.month) || fallback.month;
+  const year = Number(params.year) || fallback.year;
+  if (type === "student-progress") {
+    const data = await getMonthlyStudentProgress({ month, year, classId: params.classId });
+    return (
+      <div className="space-y-6">
+        <p className="text-sm text-slate-600">{data.label}. Print this report for class teachers to complete subject remarks.</p>
+        {data.groups.map((group) => (
+          <div key={group.classId}>
+            <h3 className="mb-2 text-sm font-semibold text-navy">{group.className} — {group.programName}</h3>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Sr</th>
+                    <th>ID</th>
+                    <th>Student</th>
+                    <th>Father</th>
+                    {group.subjects.map((subject) => <th key={subject.id}>{subject.name}</th>)}
+                    <th>Fee</th>
+                    <th>Remarks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.students.map((student) => (
+                    <tr key={student.id}>
+                      <td>{student.sr}</td>
+                      <td>{student.registrationNo}</td>
+                      <td>{student.name}</td>
+                      <td>{student.fatherName}</td>
+                      {group.subjects.map((subject) => <td key={subject.id}>—</td>)}
+                      <td>{student.feeStatus}</td>
+                      <td></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
   if (["students", "scholarship", "need-based", "self", "class-students"].includes(type)) {
     const studentType = type === "scholarship" ? "SCHOLARSHIP" : type === "need-based" ? "NEED_BASED" : type === "self" ? "SELF" : undefined;
     const studentsRes = await db()

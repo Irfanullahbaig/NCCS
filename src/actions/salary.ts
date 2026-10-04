@@ -30,6 +30,7 @@ export async function recordSalaryPaymentAction(formData: FormData) {
     const year = Number(formData.get("year") ?? 0);
     const referenceNumber = String(formData.get("referenceNumber") ?? "").trim();
     const notes = String(formData.get("notes") ?? "").trim();
+    const currentSalary = Number(formData.get("currentSalary") ?? 0);
     if (!staffId || !paymentDate || !paymentMethod || !month || !year) {
       return fail("Teacher, salary month, payment date, and method are required");
     }
@@ -41,6 +42,7 @@ export async function recordSalaryPaymentAction(formData: FormData) {
       paymentMethod,
       month,
       year,
+      currentSalary: currentSalary || undefined,
       referenceNumber: referenceNumber || null,
       notes: notes || null,
       isAdvance,

@@ -7,6 +7,7 @@ import { PrintToolbar } from "@/components/print-toolbar";
 import { getLedgerEntries, getProfitAndLoss, getYearlyMonthTable } from "@/lib/ledger";
 import { periodFromParams } from "@/lib/period";
 import { isAdvancePayment } from "@/lib/salary";
+import { getMonthlyStudentProgress } from "@/lib/progress";
 
 export default async function PrintReportPage({
   searchParams,
@@ -46,7 +47,13 @@ export default async function PrintReportPage({
           Report: {type.replaceAll("-", " ")} · Period: {financial ? period.label : monthLabel(month, year)} · Generated {formatDateTime(new Date())}
         </p>
       </header>
-      {financial ? <FinancialPrint type={type} params={params} /> : <DirectoryPrint type={type} />}
+      {type === "student-progress" ? (
+        <ProgressPrint params={params} />
+      ) : financial ? (
+        <FinancialPrint type={type} params={params} />
+      ) : (
+        <DirectoryPrint type={type} />
+      )}
     </div>
   );
 }
@@ -332,6 +339,66 @@ async function DirectoryPrint({ type }: { type: string }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+async function ProgressPrint({ params }: { params: Record<string, string | undefined> }) {
+  const fallback = currentMonthYear();
+  const month = Number(params.month) || fallback.month;
+  const year = Number(params.year) || fallback.year;
+  const data = await getMonthlyStudentProgress({ month, year, classId: params.classId });
+  if (!data.groups.length) {
+    return <p className="text-sm text-slate-500">No active students found for this period.</p>;
+  }
+  return (
+    <div className="space-y-10">
+      {data.groups.map((group) => (
+        <section key={group.classId} className="break-after-page">
+          <div className="mb-4">
+            <h2 className="text-xl font-semibold text-navy">Monthly student progress report</h2>
+            <p className="text-sm text-slate-600">
+              {group.className} — {group.programName} · {data.label} · Class teacher: {group.teacher}
+            </p>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Sr</th>
+                  <th>Student ID</th>
+                  <th>Student</th>
+                  <th>Father</th>
+                  {group.subjects.map((subject) => (
+                    <th key={subject.id}>{subject.name}</th>
+                  ))}
+                  <th>Fee status</th>
+                  <th>Teacher remarks</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.students.map((student) => (
+                  <tr key={student.id}>
+                    <td>{student.sr}</td>
+                    <td>{student.registrationNo}</td>
+                    <td>{student.name}</td>
+                    <td>{student.fatherName}</td>
+                    {group.subjects.map((subject) => (
+                      <td key={subject.id} className="min-w-[4rem]"></td>
+                    ))}
+                    <td>{student.feeStatus}</td>
+                    <td className="min-w-[8rem]"></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-10 grid grid-cols-2 gap-8 text-sm text-slate-600">
+            <p>Class teacher signature: ______________________</p>
+            <p>Principal signature: ______________________</p>
+          </div>
+        </section>
+      ))}
     </div>
   );
 }

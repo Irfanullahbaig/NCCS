@@ -4,6 +4,7 @@ import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { currentMonthYear, fullName, toCsv } from "@/lib/utils";
 import { STUDENT_TYPE_LABELS, FACULTY_TYPE_LABELS } from "@/lib/constants";
+import { getMonthlyStudentProgress } from "@/lib/progress";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +83,27 @@ export async function GET(request: Request) {
     rows = [
       ["Income ID", "Date", "Category", "Source", "Amount", "Method"],
       ...income.map((row) => [row.incomeId, dateOnly(row.date), row.category, row.source ?? "", row.amount, row.paymentMethod]),
+    ];
+  } else if (type === "student-progress") {
+    const progress = await getMonthlyStudentProgress({
+      month,
+      year,
+      classId: searchParams.get("classId") ?? undefined,
+    });
+    rows = [
+      ["Class", "Program", "Teacher", "Sr", "Student ID", "Student", "Father", "Fee status"],
+      ...progress.groups.flatMap((group) =>
+        group.students.map((student) => [
+          group.className,
+          group.programName,
+          group.teacher,
+          student.sr,
+          student.registrationNo,
+          student.name,
+          student.fatherName,
+          student.feeStatus,
+        ]),
+      ),
     ];
   } else {
     const recordsRes = await db()

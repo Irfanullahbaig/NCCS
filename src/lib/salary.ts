@@ -140,6 +140,7 @@ export async function recordSalaryPayment(input: {
   paymentMethod: PaymentMethod;
   month?: number;
   year?: number;
+  currentSalary?: number;
   referenceNumber?: string | null;
   notes?: string | null;
   isAdvance?: boolean;
@@ -151,7 +152,23 @@ export async function recordSalaryPayment(input: {
   const staff = await db().from("Staff").select("*").eq("id", input.staffId).maybeSingle();
   if (staff.error) throw staff.error;
   if (!staff.data) throw new Error("Teacher not found");
-  if (staff.data.salaryAmount <= 0) throw new Error("Set the teacher's monthly salary before recording a payment");
+
+  const currentSalary = Math.round(input.currentSalary ?? 0);
+  const nextSalary = currentSalary > 0
+    ? currentSalary
+    : Math.max(staff.data.salaryAmount, input.isAdvance ? staff.data.salaryAmount : amount);
+  if (nextSalary <= 0 && staff.data.salaryAmount <= 0) {
+    throw new Error("Enter the teacher's current monthly salary");
+  }
+
+  if (nextSalary > 0 && nextSalary !== staff.data.salaryAmount && !input.isAdvance) {
+    const staffUpdate = await db()
+      .from("Staff")
+      .update({ salaryAmount: nextSalary, updatedAt: nowIso(), updatedById: input.userId })
+      .eq("id", staff.data.id);
+    if (staffUpdate.error) throw staffUpdate.error;
+    staff.data.salaryAmount = nextSalary;
+  }
 
   const record = await ensureSalaryRecord({
     staffId: staff.data.id,
@@ -161,8 +178,21 @@ export async function recordSalaryPayment(input: {
   });
   const live = await db().from("SalaryRecord").select("*").eq("id", record.id).single();
   if (live.error) throw live.error;
-  if (amount > live.data.remainingAmount) {
-    throw new Error(`Payment exceeds remaining salary of Rs. ${live.data.remainingAmount.toLocaleString("en-PK")}`);
+
+  const expected = Math.max(nextSalary, live.data.expectedAmount, live.data.paidAmount + amount);
+  if (expected !== live.data.expectedAmount) {
+    const expectedUpdate = await db()
+      .from("SalaryRecord")
+      .update({
+        expectedAmount: expected,
+        remainingAmount: Math.max(0, expected - live.data.paidAmount),
+        updatedAt: nowIso(),
+        updatedById: input.userId,
+      })
+      .eq("id", live.data.id);
+    if (expectedUpdate.error) throw expectedUpdate.error;
+    live.data.expectedAmount = expected;
+    live.data.remainingAmount = Math.max(0, expected - live.data.paidAmount);
   }
 
   const name = fullName(staff.data.firstName, staff.data.lastName);
@@ -248,9 +278,18 @@ export async function updateSalaryPayment(input: {
   }
 
   const otherPaid = payment.data.salaryRecord.paidAmount - payment.data.amount;
-  const remainingIfRemoved = Math.max(0, payment.data.salaryRecord.expectedAmount - otherPaid);
-  if (amount > remainingIfRemoved) {
-    throw new Error(`Payment exceeds remaining salary of Rs. ${remainingIfRemoved.toLocaleString("en-PK")}`);
+  const expected = Math.max(payment.data.salaryRecord.expectedAmount, otherPaid + amount);
+  if (expected !== payment.data.salaryRecord.expectedAmount) {
+    const expectedUpdate = await db()
+      .from("SalaryRecord")
+      .update({
+        expectedAmount: expected,
+        remainingAmount: Math.max(0, expected - otherPaid),
+        updatedAt: nowIso(),
+        updatedById: input.userId,
+      })
+      .eq("id", payment.data.salaryRecordId);
+    if (expectedUpdate.error) throw expectedUpdate.error;
   }
 
   const stamp = nowIso();

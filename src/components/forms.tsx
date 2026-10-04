@@ -23,6 +23,61 @@ import {
   STUDENT_TYPE_LABELS,
 } from "@/lib/constants";
 
+function FeeMonthPicker({
+  months,
+  onChange,
+}: {
+  months: number[];
+  onChange: (months: number[]) => void;
+}) {
+  const now = new Date();
+  return (
+    <>
+      <Field label="Fee year">
+        <Input type="number" name="year" min="2000" defaultValue={now.getFullYear()} required />
+      </Field>
+      <Field label="Fee month">
+        <Select
+          value=""
+          onChange={(event) => {
+            const value = Number(event.target.value);
+            if (!value || months.includes(value)) return;
+            onChange([...months, value].sort((a, b) => a - b));
+          }}
+        >
+          <option value="">Select month</option>
+          {MONTH_NAMES.map((label, index) => (
+            <option key={label} value={index + 1} disabled={months.includes(index + 1)}>
+              {label}
+            </option>
+          ))}
+        </Select>
+        <p className="mt-1.5 text-xs text-slate-500">Select each month this payment covers. You can add more than one month.</p>
+        {months.length ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {months.map((month) => (
+              <span key={month} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs text-navy">
+                {MONTH_NAMES[month - 1]}
+                <input type="hidden" name="months" value={month} />
+                <button
+                  type="button"
+                  className="text-slate-500 hover:text-rose-600"
+                  onClick={() => onChange(months.filter((value) => value !== month))}
+                  aria-label={`Remove ${MONTH_NAMES[month - 1]}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-rose-600">Choose at least one month from the dropdown.</p>
+        )}
+      </Field>
+    </>
+  );
+}
+
 function Checklist({
   name,
   options,
@@ -638,6 +693,7 @@ export function IncomeForm({
   const [category, setCategory] = useState("STUDENT_FEE");
   const [studentId, setStudentId] = useState("");
   const [classId, setClassId] = useState("");
+  const [months, setMonths] = useState<number[]>([new Date().getMonth() + 1]);
   const today = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
@@ -645,6 +701,7 @@ export function IncomeForm({
     setCategory("STUDENT_FEE");
     setStudentId("");
     setClassId("");
+    setMonths([new Date().getMonth() + 1]);
   }, [open]);
 
   return (
@@ -686,6 +743,7 @@ export function IncomeForm({
             <p className="mt-1.5 text-xs text-slate-500">Optional unless this income is a student fee.</p>
           )}
         </Field>
+        {category === "STUDENT_FEE" ? <FeeMonthPicker months={months} onChange={setMonths} /> : null}
         <Field label="Class">
           <Select name="classId" value={classId} onChange={(event) => setClassId(event.target.value)}>
             <option value="">Optional</option>
@@ -812,34 +870,7 @@ export function PaymentForm({
             ))}
           </Select>
         </Field>
-        <Field label="Fee year">
-          <Input type="number" name="year" min="2000" defaultValue={now.getFullYear()} required />
-        </Field>
-        <Field label="Fee months" className="sm:col-span-2">
-          <p className="mb-2 text-xs text-slate-500">Select every month this payment covers. The amount below is recorded separately for each selected month.</p>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {MONTH_NAMES.map((label, index) => {
-              const value = index + 1;
-              const checked = months.includes(value);
-              return (
-                <label key={value} className="flex items-center gap-2 rounded-xl border border-slate-200 px-2 py-1.5 text-sm">
-                  <input
-                    type="checkbox"
-                    name="months"
-                    value={value}
-                    checked={checked}
-                    onChange={(event) => {
-                      setMonths((current) =>
-                        event.target.checked ? [...current, value].sort((a, b) => a - b) : current.filter((month) => month !== value),
-                      );
-                    }}
-                  />
-                  {label.slice(0, 3)}
-                </label>
-              );
-            })}
-          </div>
-        </Field>
+        <FeeMonthPicker months={months} onChange={setMonths} />
         <Field label="Amount per selected month">
           <Input type="number" min="1" name="amount" defaultValue={selected?.remaining ?? ""} required />
         </Field>
@@ -1142,11 +1173,18 @@ export function SalaryPaymentForm({
   const { error, pending, submit } = useSubmit();
   const today = new Date().toISOString().slice(0, 10);
   const [staffId, setStaffId] = useState(initial?.staffId ?? presetStaffId ?? "");
+  const [currentSalary, setCurrentSalary] = useState("");
   const selected = teachers.find((teacher) => teacher.id === staffId);
 
   useEffect(() => {
     setStaffId(initial?.staffId ?? presetStaffId ?? "");
   }, [initial, presetStaffId, open]);
+
+  useEffect(() => {
+    if (initial) return;
+    const teacher = teachers.find((item) => item.id === staffId);
+    setCurrentSalary(teacher?.salaryAmount ? String(teacher.salaryAmount) : "");
+  }, [staffId, teachers, initial, open]);
 
   return (
     <Modal open={open} onClose={onClose} title={initial ? "Edit salary payment" : "Record salary payment"}>
@@ -1174,10 +1212,11 @@ export function SalaryPaymentForm({
         </Field>
         {selected ? (
           <p className="sm:col-span-2 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">
-            Assigned salary: <strong className="text-navy">{formatPKR(selected.salaryAmount)}</strong>
+            Previously saved salary: <strong className="text-navy">{formatPKR(selected.salaryAmount)}</strong>
             {typeof selected.remaining === "number" ? (
-              <> · Remaining: <strong className="text-navy">{formatPKR(selected.remaining)}</strong></>
+              <> · Remaining on record: <strong className="text-navy">{formatPKR(selected.remaining)}</strong></>
             ) : null}
+            . You can enter a new amount below for an increment, bonus, or adjustment.
           </p>
         ) : null}
         {initial ? null : (
@@ -1200,10 +1239,28 @@ export function SalaryPaymentForm({
             <Field label="Year">
               <Input type="number" name="year" min="2000" defaultValue={defaultYear} required />
             </Field>
+            <Field label="Current monthly salary" className="sm:col-span-2">
+              <Input
+                type="number"
+                min="1"
+                name="currentSalary"
+                value={currentSalary}
+                onChange={(event) => setCurrentSalary(event.target.value)}
+                required
+              />
+              <p className="mt-1.5 text-xs text-slate-500">Enter the salary to use this month. This can be higher or lower than the previously saved amount.</p>
+            </Field>
           </>
         )}
         <Field label="Amount paid">
-          <Input type="number" min="1" name="amount" defaultValue={initial?.amount ?? selected?.remaining ?? ""} required />
+          <Input
+            key={`${staffId}-${currentSalary}-${initial?.paymentId ?? "new"}`}
+            type="number"
+            min="1"
+            name="amount"
+            defaultValue={initial?.amount ?? currentSalary}
+            required
+          />
         </Field>
         <Field label="Payment date">
           <Input type="date" name="paymentDate" defaultValue={initial?.paymentDate ?? today} required />

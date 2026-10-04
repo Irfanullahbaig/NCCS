@@ -7,6 +7,7 @@ import { formatPKR, fullName, monthLabel } from "@/lib/utils";
 import { Card, PageHeader, StatCard, EmptyState } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
 import { RecordPaymentButton } from "@/components/forms";
+import { ProgressReportLaunch } from "@/components/report-period";
 
 export default async function ClassDashboardPage({
   params,
@@ -36,7 +37,17 @@ export default async function ClassDashboardPage({
       <PageHeader
         title={schoolClass.name}
         subtitle={`${monthLabel(month, year)} · Class teacher: ${schoolClass.classTeacher ? fullName(schoolClass.classTeacher.firstName, schoolClass.classTeacher.lastName) : "Unassigned"}`}
-        actions={can(user.role, "fees.record") && paymentStudents.length ? <RecordPaymentButton students={paymentStudents} /> : null}
+        actions={
+          <>
+            {can(user.role, "reports.export") ? (
+              <ProgressReportLaunch
+                classes={[{ id: schoolClass.id, label: `${schoolClass.name} — ${schoolClass.program.name}` }]}
+                defaultClassId={schoolClass.id}
+              />
+            ) : null}
+            {can(user.role, "fees.record") && paymentStudents.length ? <RecordPaymentButton students={paymentStudents} /> : null}
+          </>
+        }
       />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total students" value={totals.students} />

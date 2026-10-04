@@ -281,6 +281,8 @@ export async function recordIncome(input: {
   paymentMethod: PaymentMethod;
   referenceNumber?: string | null;
   notes?: string | null;
+  month?: number;
+  year?: number;
   userId: string;
 }) {
   if (input.category === "STUDENT_FEE") {
@@ -292,6 +294,8 @@ export async function recordIncome(input: {
       paymentMethod: input.paymentMethod,
       referenceNumber: input.referenceNumber,
       notes: input.notes,
+      month: input.month,
+      year: input.year,
       userId: input.userId,
     });
   }
