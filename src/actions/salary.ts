@@ -33,6 +33,7 @@ export async function recordSalaryPaymentAction(formData: FormData) {
     if (!staffId || !paymentDate || !paymentMethod || !month || !year) {
       return fail("Teacher, salary month, payment date, and method are required");
     }
+    const isAdvance = String(formData.get("kind") ?? "") === "ADVANCE";
     await recordSalaryPayment({
       staffId,
       amount,
@@ -42,9 +43,13 @@ export async function recordSalaryPaymentAction(formData: FormData) {
       year,
       referenceNumber: referenceNumber || null,
       notes: notes || null,
+      isAdvance,
       userId: user.id,
     });
     refreshSalary(staffId);
+    revalidatePath("/finance/ledger");
+    revalidatePath("/finance/profit-loss");
+    revalidatePath("/finance/advances");
     return { ok: true as const };
   } catch (error) {
     return fail(error instanceof Error ? error.message : "Unable to record salary payment");

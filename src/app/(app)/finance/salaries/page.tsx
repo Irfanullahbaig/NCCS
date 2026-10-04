@@ -3,16 +3,23 @@ import { AlertCircle, Banknote, CircleDollarSign, Users } from "lucide-react";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
-import { ensureCurrentMonthSalaries } from "@/lib/salary";
-import { currentMonthYear, formatDate, formatPKR, fullName, monthLabel } from "@/lib/utils";
-import { PageHeader, EmptyState, ViewOnlyBadge, StatCard } from "@/components/ui";
+import { ensureCurrentMonthSalaries, isAdvancePayment } from "@/lib/salary";
+import { currentMonthYear, formatDate, formatPKR, fullName, monthLabel, MONTH_NAMES } from "@/lib/utils";
+import { PageHeader, EmptyState, ViewOnlyBadge, StatCard, Select, Input } from "@/components/ui";
 import { FeeBadge } from "@/components/badges";
 import { RecordSalaryButton } from "@/components/forms";
 
-export default async function SalariesPage() {
+export default async function SalariesPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | undefined>>;
+}) {
   const user = await requirePermission("salaries.view");
   await ensureCurrentMonthSalaries(user.id);
-  const { month, year } = currentMonthYear();
+  const params = await searchParams;
+  const fallback = currentMonthYear();
+  const month = Number(params.month) || fallback.month;
+  const year = Number(params.year) || fallback.year;
   const recordsRes = await db()
     .from("SalaryRecord")
     .select("*, staff:Staff(*), payments:SalaryPayment(*)")
@@ -20,12 +27,13 @@ export default async function SalariesPage() {
     .eq("year", year)
     .order("remainingAmount", { ascending: false });
   if (recordsRes.error) throw recordsRes.error;
-  const records = (recordsRes.data ?? []).map((record) => ({
-    ...record,
-    payments: (record.payments ?? [])
+  const records = (recordsRes.data ?? []).map((record) => {
+    const payments = (record.payments ?? [])
       .filter((payment) => !payment.voidedAt)
-      .sort((a, b) => String(b.paymentDate).localeCompare(String(a.paymentDate))),
-  }));
+      .sort((a, b) => String(b.paymentDate).localeCompare(String(a.paymentDate)));
+    const advance = payments.filter((payment) => isAdvancePayment(payment.notes)).reduce((sum, payment) => sum + payment.amount, 0);
+    return { ...record, payments, advance, net: Math.max(0, record.expectedAmount - advance) };
+  });
 
   const teachers = records.map((record) => ({
     id: record.staff.id,
@@ -37,18 +45,33 @@ export default async function SalariesPage() {
   const payable = records.reduce((sum, record) => sum + record.expectedAmount, 0);
   const paid = records.reduce((sum, record) => sum + record.paidAmount, 0);
   const outstanding = records.reduce((sum, record) => sum + record.remainingAmount, 0);
+  const advances = records.reduce((sum, record) => sum + record.advance, 0);
 
   return (
     <div>
       <PageHeader
-        title="Teacher salaries"
-        subtitle={`Assigned monthly salary versus amount paid for ${monthLabel(month, year)}.`}
-        actions={can(user.role, "salaries.record") ? <RecordSalaryButton teachers={teachers} defaultMonth={month} defaultYear={year} /> : <ViewOnlyBadge />}
+        title="Payroll"
+        subtitle={`Assigned monthly salary versus amount paid for ${monthLabel(month, year)}. Advances reduce net salary without double-counting expenses.`}
+        actions={can(user.role, "salaries.record") ? (
+          <>
+            <RecordSalaryButton teachers={teachers} defaultMonth={month} defaultYear={year} defaultKind="ADVANCE" label="Record advance" />
+            <RecordSalaryButton teachers={teachers} defaultMonth={month} defaultYear={year} />
+          </>
+        ) : <ViewOnlyBadge />}
       />
+      <form className="mb-4 grid gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:grid-cols-4">
+        <Select name="month" defaultValue={String(month)}>
+          {MONTH_NAMES.map((label, index) => (
+            <option key={label} value={index + 1}>{label}</option>
+          ))}
+        </Select>
+        <Input type="number" name="year" min="2000" defaultValue={year} />
+        <button className="h-10 rounded-xl bg-navy text-sm font-medium text-white">Apply</button>
+      </form>
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Teachers" value={records.length} hint={monthLabel(month, year)} icon={<Users className="h-5 w-5" />} tone="navy" />
+        <StatCard label="Employees" value={records.length} hint={monthLabel(month, year)} icon={<Users className="h-5 w-5" />} tone="navy" />
         <StatCard label="Payable" value={formatPKR(payable)} hint="Assigned salaries" icon={<CircleDollarSign className="h-5 w-5" />} />
-        <StatCard label="Paid" value={formatPKR(paid)} hint="Amount paid this month" icon={<Banknote className="h-5 w-5" />} tone="teal" />
+        <StatCard label="Paid" value={formatPKR(paid)} hint={`Includes ${formatPKR(advances)} advances`} icon={<Banknote className="h-5 w-5" />} tone="teal" />
         <StatCard label="Remaining" value={formatPKR(outstanding)} hint="Still to pay" icon={<AlertCircle className="h-5 w-5" />} tone="rose" />
       </div>
       <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
@@ -57,10 +80,12 @@ export default async function SalariesPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Teacher</th>
-                  <th>Assigned salary</th>
-                  <th>Amount paid</th>
-                  <th>Remaining</th>
+                  <th>Employee</th>
+                  <th>Role</th>
+                  <th>Salary</th>
+                  <th>Advance</th>
+                  <th>Paid</th>
+                  <th>Net remaining</th>
                   <th>Last payment</th>
                   <th>Status</th>
                 </tr>
@@ -74,7 +99,9 @@ export default async function SalariesPage() {
                       </Link>
                       <div className="text-xs text-slate-500">{record.staff.staffId}</div>
                     </td>
+                    <td>{record.staff.facultyType?.replaceAll("_", " ") || "Staff"}</td>
                     <td>{formatPKR(record.expectedAmount)}</td>
+                    <td>{formatPKR(record.advance)}</td>
                     <td>{formatPKR(record.paidAmount)}</td>
                     <td>{formatPKR(record.remainingAmount)}</td>
                     <td>{record.payments[0] ? formatDate(record.payments[0].paymentDate) : "—"}</td>
@@ -86,7 +113,7 @@ export default async function SalariesPage() {
           </div>
         ) : (
           <EmptyState
-            title="No salary records"
+            title="No payroll records"
             description="Set a monthly salary on each teacher profile, then record payments here."
           />
         )}
@@ -94,13 +121,14 @@ export default async function SalariesPage() {
       {records.some((record) => record.payments.length) ? (
         <div className="mt-6 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
           <div className="border-b border-slate-100 px-5 py-4">
-            <h2 className="text-sm font-semibold text-navy">This month’s payments</h2>
+            <h2 className="text-sm font-semibold text-navy">This period’s payments</h2>
           </div>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Teacher</th>
+                  <th>Employee</th>
+                  <th>Kind</th>
                   <th>Paid</th>
                   <th>Date</th>
                   <th>Method</th>
@@ -111,7 +139,12 @@ export default async function SalariesPage() {
                 {records.flatMap((record) =>
                   record.payments.map((payment) => (
                     <tr key={payment.id}>
-                      <td>{fullName(record.staff.firstName, record.staff.lastName)}</td>
+                      <td>
+                        <Link href={`/staff/${record.staff.id}`} className="text-navy">
+                          {fullName(record.staff.firstName, record.staff.lastName)}
+                        </Link>
+                      </td>
+                      <td>{isAdvancePayment(payment.notes) ? "Advance" : "Salary"}</td>
                       <td>{formatPKR(payment.amount)}</td>
                       <td>{formatDate(payment.paymentDate)}</td>
                       <td>{payment.paymentMethod.replace("_", " ")}</td>

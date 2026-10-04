@@ -4,6 +4,21 @@ import { writeAudit } from "@/lib/audit";
 import { nextExpenseId } from "@/lib/ids";
 import { currentMonthYear, fullName } from "@/lib/utils";
 
+export const ADVANCE_NOTE_PREFIX = "[ADVANCE]";
+
+export function isAdvancePayment(notes?: string | null) {
+  return Boolean(notes?.startsWith(ADVANCE_NOTE_PREFIX));
+}
+
+export function isAdvanceExpense(description?: string | null) {
+  return Boolean(description?.toLowerCase().startsWith("advance salary"));
+}
+
+export function stripAdvancePrefix(notes?: string | null) {
+  if (!notes) return "";
+  return notes.startsWith(ADVANCE_NOTE_PREFIX) ? notes.slice(ADVANCE_NOTE_PREFIX.length).trim() : notes;
+}
+
 function deriveSalaryStatus(expected: number, paid: number): { remaining: number; status: SalaryStatus } {
   const remaining = Math.max(0, Math.round(expected) - Math.round(paid));
   if (remaining <= 0 && expected > 0) return { remaining: 0, status: "PAID" };
@@ -127,6 +142,7 @@ export async function recordSalaryPayment(input: {
   year?: number;
   referenceNumber?: string | null;
   notes?: string | null;
+  isAdvance?: boolean;
   userId: string;
 }) {
   const amount = Math.round(input.amount);
@@ -151,6 +167,10 @@ export async function recordSalaryPayment(input: {
 
   const name = fullName(staff.data.firstName, staff.data.lastName);
   const stamp = nowIso();
+  const kindLabel = input.isAdvance ? "Advance salary" : "Salary";
+  const notes = input.isAdvance
+    ? `${ADVANCE_NOTE_PREFIX} ${input.notes ?? ""}`.trim()
+    : input.notes ?? null;
   const expense = await db()
     .from("ExpenseTransaction")
     .insert({
@@ -162,8 +182,8 @@ export async function recordSalaryPayment(input: {
       paidTo: name,
       paymentMethod: input.paymentMethod,
       referenceNumber: input.referenceNumber ?? null,
-      description: `Salary ${live.data.month}/${live.data.year} — ${name}`,
-      notes: input.notes ?? null,
+      description: `${kindLabel} ${live.data.month}/${live.data.year} — ${name}`,
+      notes,
       createdAt: stamp,
       updatedAt: stamp,
       createdById: input.userId,
@@ -183,7 +203,7 @@ export async function recordSalaryPayment(input: {
       paymentDate: nowIso(input.paymentDate),
       paymentMethod: input.paymentMethod,
       referenceNumber: input.referenceNumber ?? null,
-      notes: input.notes ?? null,
+      notes,
       expenseTransactionId: expense.data.id,
       createdAt: stamp,
       updatedAt: stamp,
@@ -200,7 +220,7 @@ export async function recordSalaryPayment(input: {
     action: "SALARY_PAYMENT_RECORDED",
     entityType: "SalaryPayment",
     entityId: payment.data.id,
-    details: { staffId: input.staffId, amount, expenseId: expense.data.expenseId },
+    details: { staffId: input.staffId, amount, expenseId: expense.data.expenseId, advance: Boolean(input.isAdvance) },
   });
   return { payment: payment.data, expense: expense.data, salaryRecordId: live.data.id };
 }

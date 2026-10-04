@@ -7,7 +7,7 @@ function firstEnv(...names: string[]) {
 }
 
 export function getSupabaseUrl() {
-  return firstEnv("NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL");
+  return firstEnv("SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL");
 }
 
 export function getSupabasePublishableKey() {

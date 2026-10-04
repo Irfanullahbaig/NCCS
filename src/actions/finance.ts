@@ -25,6 +25,9 @@ function refreshFinance() {
   revalidatePath("/finance/outstanding");
   revalidatePath("/students");
   revalidatePath("/classes");
+  revalidatePath("/finance/ledger");
+  revalidatePath("/finance/profit-loss");
+  revalidatePath("/finance/advances");
   revalidatePath("/reports");
 }
 
@@ -37,18 +40,30 @@ export async function recordPaymentAction(formData: FormData) {
     const paymentMethod = String(formData.get("paymentMethod") ?? "") as PaymentMethod;
     const referenceNumber = String(formData.get("referenceNumber") ?? "").trim();
     const notes = String(formData.get("notes") ?? "").trim();
+    const year = Number(formData.get("year") ?? 0);
+    const category = (String(formData.get("feeType") ?? "STUDENT_FEE") || "STUDENT_FEE") as IncomeCategory;
+    const months = formData.getAll("months").map(Number).filter((month) => month >= 1 && month <= 12);
     if (!studentId || !paymentDate || !paymentMethod) return fail("Student, date, and payment method are required");
+    if (!year || !months.length) return fail("Select the fee year and at least one month");
 
-    await recordStudentPayment({
-      studentId,
-      amount,
-      paymentDate: parseDateInput(paymentDate),
-      paymentMethod,
-      referenceNumber: referenceNumber || null,
-      notes: notes || null,
-      userId: user.id,
-    });
+    for (const month of months) {
+      const monthAmount = Number(formData.get(`amount_${month}`) || amount);
+      if (!monthAmount) continue;
+      await recordStudentPayment({
+        studentId,
+        amount: monthAmount,
+        paymentDate: parseDateInput(paymentDate),
+        paymentMethod,
+        referenceNumber: referenceNumber || null,
+        notes: notes || null,
+        month,
+        year,
+        category,
+        userId: user.id,
+      });
+    }
     refreshFinance();
+    revalidatePath(`/students/${studentId}`);
     return { ok: true as const };
   } catch (error) {
     return fail(error instanceof Error ? error.message : "Unable to record payment");

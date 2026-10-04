@@ -37,12 +37,15 @@ const NAV: NavItem[] = [
   { href: "/students", label: "Students", icon: GraduationCap, permission: "students.view" },
   { href: "/classes", label: "Classes", icon: BookOpen, permission: "classes.view" },
   { href: "/staff", label: "Staff / Teachers", icon: Users, permission: "staff.view" },
-  { href: "/finance", label: "Finance analytics", icon: Wallet, permission: "finance.analytics" },
+  { href: "/finance", label: "Finance", icon: Wallet, permission: "finance.view" },
+  { href: "/finance/fees", label: "Student Fees", icon: ClipboardList, permission: "fees.view", indent: true },
+  { href: "/finance/outstanding", label: "Fee collection / outstanding", icon: ClipboardList, permission: "fees.view", indent: true },
   { href: "/finance/income", label: "Income", icon: Banknote, permission: "finance.view", indent: true },
   { href: "/finance/expenses", label: "Expenses", icon: Receipt, permission: "finance.view", indent: true },
-  { href: "/finance/fees", label: "Student Fees", icon: ClipboardList, permission: "fees.view", indent: true },
-  { href: "/finance/salaries", label: "Teacher Salaries", icon: Coins, permission: "salaries.view", indent: true },
-  { href: "/finance/outstanding", label: "Outstanding", icon: ClipboardList, permission: "fees.view", indent: true },
+  { href: "/finance/salaries", label: "Payroll", icon: Coins, permission: "salaries.view", indent: true },
+  { href: "/finance/advances", label: "Advance salary", icon: Coins, permission: "salaries.view", indent: true },
+  { href: "/finance/profit-loss", label: "Profit & Loss", icon: Wallet, permission: "finance.analytics", indent: true },
+  { href: "/finance/ledger", label: "Transactions / Ledger", icon: ClipboardList, permission: "finance.view", indent: true },
   { href: "/reports", label: "Reports", icon: ClipboardList, permission: "reports.view" },
   { href: "/users", label: "Users", icon: Shield, permission: "users.manage" },
   { href: "/audit", label: "Audit Log", icon: ClipboardList, permission: "audit.view" },
@@ -65,7 +68,6 @@ export function ShellChrome({
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
     if (href === "/finance") return pathname === "/finance";
-    if (href === "/finance/income") return pathname === "/finance/income" || pathname.startsWith("/finance/income/");
     return pathname === href || pathname.startsWith(`${href}/`);
   };
 

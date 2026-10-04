@@ -180,12 +180,14 @@ export function StatCard({
   hint,
   icon,
   tone = "teal",
+  href,
 }: {
   label: string;
   value: ReactNode;
   hint?: string;
   icon?: ReactNode;
   tone?: "teal" | "navy" | "gold" | "rose" | "sky" | "violet";
+  href?: string;
 }) {
   const tones = {
     teal: "bg-teal/10 text-teal",
@@ -195,18 +197,25 @@ export function StatCard({
     sky: "bg-sky-100 text-sky-700",
     violet: "bg-violet-100 text-violet-700",
   };
-  return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-          <p className="mt-2 text-2xl font-semibold tracking-tight text-navy">{value}</p>
-          {hint ? <p className="mt-1 text-xs text-slate-500">{hint}</p> : null}
-        </div>
-        {icon ? <div className={cn("flex h-10 w-10 items-center justify-center rounded-xl", tones[tone])}>{icon}</div> : null}
+  const inner = (
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+        <p className="mt-2 text-2xl font-semibold tracking-tight text-navy">{value}</p>
+        {hint ? <p className="mt-1 text-xs text-slate-500">{hint}</p> : null}
       </div>
+      {icon ? <div className={cn("flex h-10 w-10 items-center justify-center rounded-xl", tones[tone])}>{icon}</div> : null}
     </div>
   );
+  const className = "rounded-2xl border border-slate-100 bg-white p-4 shadow-sm";
+  if (href) {
+    return (
+      <a href={href} className={`${className} block transition hover:border-teal/40`}>
+        {inner}
+      </a>
+    );
+  }
+  return <div className={className}>{inner}</div>;
 }
 
 export function ErrorText({ children }: { children?: string | null }) {

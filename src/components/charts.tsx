@@ -18,7 +18,15 @@ import { formatPKR } from "@/lib/utils";
 export function FinanceCharts({
   data,
 }: {
-  data: Array<{ label: string; income: number; expenses: number; fees: number }>;
+  data: Array<{
+    label: string;
+    income: number;
+    expenses: number;
+    fees: number;
+    payroll?: number;
+    outstanding?: number;
+    net?: number;
+  }>;
 }) {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -67,6 +75,36 @@ export function FinanceCharts({
           </LineChart>
         </ResponsiveContainer>
       </div>
+      {data.some((row) => row.payroll != null || row.net != null) ? (
+        <>
+          <div className="h-72">
+            <p className="mb-3 text-sm font-semibold text-navy">Payroll and outstanding fees</p>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e6ebf2" />
+                <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip formatter={(value) => formatPKR(Number(value))} />
+                <Legend />
+                <Bar dataKey="payroll" fill="#1a3b66" name="Payroll" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="outstanding" fill="#d97706" name="Outstanding" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="h-72">
+            <p className="mb-3 text-sm font-semibold text-navy">Net profit / loss</p>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e6ebf2" />
+                <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip formatter={(value) => formatPKR(Number(value))} />
+                <Line type="monotone" dataKey="net" stroke="#0f766e" strokeWidth={3} name="Net" dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

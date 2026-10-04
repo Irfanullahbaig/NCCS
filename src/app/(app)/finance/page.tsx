@@ -2,73 +2,74 @@ import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
-import { getFinanceDashboard } from "@/lib/queries";
-import { formatDate, formatPKR, parseDateInput } from "@/lib/utils";
-import { Card, PageHeader, StatCard, Select, Input, ViewOnlyBadge } from "@/components/ui";
+import { getProfitAndLoss, getYearlyMonthTable } from "@/lib/ledger";
+import { periodFromParams } from "@/lib/period";
+import { formatDate, formatPKR, fullName } from "@/lib/utils";
+import { Card, PageHeader, StatCard, ViewOnlyBadge } from "@/components/ui";
 import { FinanceCharts } from "@/components/charts";
 import { AddExpenseButton, AddIncomeButton } from "@/components/forms";
-import { INCOME_CATEGORY_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/constants";
-import { fullName } from "@/lib/utils";
+import { PeriodFilter } from "@/components/period-filter";
 
 export default async function FinanceDashboardPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const user = await requirePermission("finance.analytics");
+  const user = await requirePermission("finance.view");
   const params = await searchParams;
-  const [data, classesRes, programsRes, yearsRes, studentsRes] = await Promise.all([
-    getFinanceDashboard({
-      from: params.from ? parseDateInput(params.from) : undefined,
-      to: params.to ? parseDateInput(params.to) : undefined,
-      academicYearId: params.academicYearId,
-      classId: params.classId,
-      programId: params.programId,
-      category: params.category,
-      paymentMethod: params.paymentMethod,
-    }),
-    db().from("Class").select("*, program:Program(*)").order("name", { ascending: true }),
-    db().from("Program").select("*").order("name", { ascending: true }),
-    db().from("AcademicYear").select("*").order("startDate", { ascending: false }),
+  const period = periodFromParams(params);
+  const [data, yearly, studentsRes, classesRes] = await Promise.all([
+    getProfitAndLoss(period),
+    getYearlyMonthTable(period.year),
     db()
       .from("Student")
       .select("*, class:Class(*, program:Program(*))")
       .is("deletedAt", null)
       .eq("status", "ACTIVE")
       .order("firstName", { ascending: true }),
+    db().from("Class").select("*, program:Program(*)").order("name", { ascending: true }),
   ]);
-  for (const result of [classesRes, programsRes, yearsRes, studentsRes]) {
-    if (result.error) throw result.error;
-  }
-  const classes = classesRes.data ?? [];
-  const programs = programsRes.data ?? [];
-  const years = yearsRes.data ?? [];
-  const students = studentsRes.data ?? [];
+  if (studentsRes.error) throw studentsRes.error;
+  if (classesRes.error) throw classesRes.error;
 
-  const classOptions = classes.map((item) => ({
+  const classOptions = (classesRes.data ?? []).map((item) => ({
     id: item.id,
     name: item.name,
     program: item.program.name,
     feeAmount: item.feeAmount,
   }));
-  const studentOptions = students.map((student) => ({
+  const studentOptions = (studentsRes.data ?? []).map((student) => ({
     id: student.id,
-    name: `${fullName(student.firstName, student.lastName)}`,
+    name: fullName(student.firstName, student.lastName),
     classId: student.classId,
     fatherName: student.fatherName,
     registrationNo: student.registrationNo,
     classLabel: `${student.class.name} ${student.class.program.name}`,
   }));
 
+  const query = new URLSearchParams({ period: period.mode, year: String(period.year) });
+  if (period.month) query.set("month", String(period.month));
+  const ledgerHref = `/finance/ledger?${query.toString()}`;
+  const showAnalytics = can(user.role, "finance.analytics");
+  const chartData = yearly.map((row) => ({
+    label: row.label,
+    income: row.income,
+    expenses: row.expenses,
+    fees: row.fees,
+    payroll: row.payroll,
+    outstanding: row.outstanding,
+    net: row.net,
+  }));
+
   return (
     <div>
       <PageHeader
-        title="Financial dashboard"
-        subtitle="Income, expenses, and fee collection are calculated from posted transactions — never from a manual status field."
+        title="Finance overview"
+        subtitle={`Posted transactions for ${period.label}. Outstanding fees are not counted as income.`}
         actions={
           can(user.role, "finance.create") ? (
             <>
-              <Link href="/finance/outstanding" className="inline-flex h-10 items-center rounded-xl border border-slate-200 px-4 text-sm">Outstanding</Link>
+              <Link href="/reports" className="inline-flex h-10 items-center rounded-xl border border-slate-200 px-4 text-sm">Reports</Link>
               <AddExpenseButton />
               <AddIncomeButton students={studentOptions} classes={classOptions} />
             </>
@@ -77,64 +78,57 @@ export default async function FinanceDashboardPage({
           )
         }
       />
-      <form className="mb-4 grid gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:grid-cols-7">
-        <Input type="date" name="from" defaultValue={params.from} />
-        <Input type="date" name="to" defaultValue={params.to} />
-        <Select name="academicYearId" defaultValue={params.academicYearId ?? ""}>
-          <option value="">Academic year</option>
-          {years.map((year) => <option key={year.id} value={year.id}>{year.name}</option>)}
-        </Select>
-        <Select name="classId" defaultValue={params.classId ?? ""}>
-          <option value="">Class</option>
-          {classOptions.map((item) => <option key={item.id} value={item.id}>{item.name} — {item.program}</option>)}
-        </Select>
-        <Select name="programId" defaultValue={params.programId ?? ""}>
-          <option value="">Program</option>
-          {programs.map((program) => <option key={program.id} value={program.id}>{program.name}</option>)}
-        </Select>
-        <Select name="category" defaultValue={params.category ?? ""}>
-          <option value="">Income category</option>
-          {Object.entries(INCOME_CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </Select>
-        <Select name="paymentMethod" defaultValue={params.paymentMethod ?? ""}>
-          <option value="">Payment method</option>
-          {Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </Select>
-        <button className="h-10 rounded-xl bg-navy text-sm font-medium text-white md:col-span-7 lg:col-span-1">Filter</button>
-      </form>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total income" value={formatPKR(data.totalIncome)} />
-        <StatCard label="Total expenses" value={formatPKR(data.totalExpenses)} tone="rose" />
-        <StatCard label="Net balance" value={formatPKR(data.netBalance)} tone="navy" />
-        <StatCard label="Fee collection" value={formatPKR(data.feeCollection)} />
-        <StatCard label="Outstanding fees" value={formatPKR(data.outstanding)} tone="gold" />
-        <StatCard label="Today's income" value={formatPKR(data.todayIncome)} />
-        <StatCard label="This month's income" value={formatPKR(data.monthIncome)} tone="teal" />
-        <StatCard label="This month's expenses" value={formatPKR(data.monthExpenses)} tone="rose" />
+      <PeriodFilter action="/finance" period={period} />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <StatCard label="Total income" value={formatPKR(data.totalIncome)} href={`${ledgerHref}&type=income`} />
+        <StatCard label="Total expenses" value={formatPKR(data.totalExpenses)} tone="rose" href={`${ledgerHref}&type=expense`} />
+        <StatCard label="Payroll" value={formatPKR(data.payroll + data.advances)} href={`${ledgerHref}&type=SALARIES`} />
+        <StatCard label="Outstanding fees" value={formatPKR(data.outstanding)} tone="gold" href="/finance/outstanding" />
+        {showAnalytics ? (
+          <StatCard label={data.net >= 0 ? "Net profit" : "Net loss"} value={formatPKR(data.net)} tone={data.net >= 0 ? "teal" : "rose"} href="/finance/profit-loss" />
+        ) : (
+          <StatCard label="Fees collected" value={formatPKR(data.studentFees)} href={`${ledgerHref}&type=STUDENT_FEE`} />
+        )}
       </div>
-      <Card title="Trends" className="mt-6">
-        <FinanceCharts data={data.monthlySeries} />
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Fees billed" value={formatPKR(data.billed)} hint={`${data.studentsPaid} paid · ${data.studentsPartial} partial`} />
+        <StatCard label="Fees collected" value={formatPKR(data.collected)} href={`${ledgerHref}&type=STUDENT_FEE`} />
+        <StatCard label="Advance salaries" value={formatPKR(data.advances)} href={`${ledgerHref}&type=ADVANCE_SALARY`} />
+        <StatCard label="Students with outstanding" value={data.studentsOutstanding} href="/finance/outstanding" tone="rose" />
+      </div>
+      <Card title={`${period.year} trends`} className="mt-6">
+        <FinanceCharts data={chartData} />
       </Card>
-      <Card title="Recent income" className="mt-6" action={<Link href="/finance/income" className="text-sm text-teal">All income</Link>}>
+      <Card title="Recent transactions" className="mt-6" action={<Link href={ledgerHref} className="text-sm text-teal">Open ledger</Link>}>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>ID</th>
                 <th>Date</th>
-                <th>Category</th>
+                <th>Type</th>
                 <th>Source</th>
+                <th>Person</th>
+                <th>Program</th>
                 <th>Amount</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              {data.recentIncome.map((row) => (
+              {data.rows.slice(0, 12).map((row) => (
                 <tr key={row.id}>
-                  <td>{row.incomeId}</td>
                   <td>{formatDate(row.date)}</td>
-                  <td>{INCOME_CATEGORY_LABELS[row.category]}</td>
-                  <td>{row.source || (row.student ? fullName(row.student.firstName, row.student.lastName) : "—")}</td>
-                  <td>{formatPKR(row.amount)}</td>
+                  <td>
+                    <Link href={`${ledgerHref}&txn=${row.transactionId}`} className="text-teal">
+                      {row.type.replaceAll("_", " ")}
+                    </Link>
+                  </td>
+                  <td>{row.source}</td>
+                  <td>
+                    {row.personHref ? <Link href={row.personHref} className="text-navy">{row.person}</Link> : row.person}
+                  </td>
+                  <td>{row.program || "—"}</td>
+                  <td>{formatPKR(row.signedAmount)}</td>
+                  <td>{row.status}</td>
                 </tr>
               ))}
             </tbody>

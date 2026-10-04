@@ -159,6 +159,7 @@ export async function recordStudentPayment(input: {
   notes?: string | null;
   month?: number;
   year?: number;
+  category?: IncomeCategory;
   userId: string;
 }) {
   const amount = Math.round(input.amount);
@@ -192,8 +193,8 @@ export async function recordStudentPayment(input: {
     incomeId,
     date: nowIso(input.paymentDate),
     amount,
-    category: "STUDENT_FEE" as const,
-    source: `${student.data.firstName} ${student.data.lastName} — ${student.data.class.name} ${student.data.class.program.name}`,
+    category: (input.category ?? "STUDENT_FEE") as IncomeCategory,
+    source: `${student.data.firstName} ${student.data.lastName} — ${student.data.class.name} ${student.data.class.program.name} — ${live.data.month}/${live.data.year}`,
     studentId: student.data.id,
     classId: student.data.classId,
     paymentMethod: input.paymentMethod,

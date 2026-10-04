@@ -75,8 +75,14 @@ export default async function LoginPage({
           ) : null}
           {databaseConfigured && params.error === "server" ? (
             <p className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              Could not reach Supabase. Confirm the URL and secret key belong to the new project, the NCCS schema SQL
-              has been run, then restart or redeploy.
+              Could not reach Supabase. Confirm the URL and secret key belong to the new project, then restart or redeploy.
+            </p>
+          ) : null}
+          {databaseConfigured && params.error === "schema" ? (
+            <p className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              Connected to Supabase, but the NCCS tables are missing. In the new project SQL Editor, run{" "}
+              <code className="font-medium">supabase/migrations/20260928212038_nccs_schema.sql</code>, then{" "}
+              <code className="font-medium">NCCS_ALLOW_SEED=1 npm run db:seed</code>.
             </p>
           ) : null}
           <form action="/api/auth/login" method="post" className="mt-8 space-y-4">

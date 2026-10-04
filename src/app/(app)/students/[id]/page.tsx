@@ -5,21 +5,29 @@ import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { getStudentById } from "@/lib/queries";
 import { formatDate, formatPKR, fullName, monthLabel, toDateInput } from "@/lib/utils";
-import { Card, PageHeader } from "@/components/ui";
+import { Card, PageHeader, Select } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
 import { EditStudentButton, RecordPaymentButton } from "@/components/forms";
 import { PAYMENT_METHOD_LABELS } from "@/lib/constants";
 
 export default async function StudentProfilePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const user = await requirePermission("students.view");
   const { id } = await params;
+  const query = await searchParams;
   const data = await getStudentById(id);
   if (!data) notFound();
   const { student, currentFee, totalPaid, totalOutstanding, month, year } = data;
+  const yearFilter = Number(query.year) || 0;
+  const feeHistory = yearFilter
+    ? student.feeRecords.filter((record) => record.year === yearFilter)
+    : student.feeRecords;
+  const years = [...new Set(student.feeRecords.map((record) => record.year))].sort((a, b) => b - a);
 
   const classesRes = await db().from("Class").select("*, program:Program(*)").eq("status", "ACTIVE");
   if (classesRes.error) throw classesRes.error;
@@ -91,6 +99,56 @@ export default async function StudentProfilePage({
             <Mini label="Total paid" value={formatPKR(totalPaid)} />
             <Mini label="Total outstanding" value={formatPKR(totalOutstanding)} />
           </div>
+          <Card title="Fee history">
+            <form className="mb-4 flex flex-wrap gap-3">
+              <Select name="year" defaultValue={yearFilter ? String(yearFilter) : ""}>
+                <option value="">All academic / calendar years</option>
+                {years.map((value) => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </Select>
+              <button className="h-10 rounded-xl bg-navy px-4 text-sm font-medium text-white">Filter</button>
+            </form>
+            {feeHistory.length ? (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Month</th>
+                      <th>Year</th>
+                      <th>Expected</th>
+                      <th>Paid</th>
+                      <th>Remaining</th>
+                      <th>Status</th>
+                      <th>Payment date</th>
+                      <th>Method</th>
+                      <th>Receipt</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {feeHistory.map((record) => {
+                      const last = [...record.payments].sort((a, b) => String(b.paymentDate).localeCompare(String(a.paymentDate)))[0];
+                      return (
+                        <tr key={record.id}>
+                          <td>{monthLabel(record.month, record.year).split(" ")[0]}</td>
+                          <td>{record.year}</td>
+                          <td>{formatPKR(record.expectedAmount)}</td>
+                          <td>{formatPKR(record.paidAmount)}</td>
+                          <td>{formatPKR(record.remainingAmount)}</td>
+                          <td><FeeBadge status={record.status} /></td>
+                          <td>{last ? formatDate(last.paymentDate) : "—"}</td>
+                          <td>{last ? PAYMENT_METHOD_LABELS[last.paymentMethod] : "—"}</td>
+                          <td>{last?.referenceNumber || "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">No fee records for the selected year.</p>
+            )}
+          </Card>
           <Card title="Payment history">
             {student.payments.length ? (
               <div className="table-wrap">

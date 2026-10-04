@@ -12,16 +12,27 @@ import {
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { getDashboardData } from "@/lib/queries";
+import { getProfitAndLoss, getYearlyMonthTable } from "@/lib/ledger";
+import { periodFromParams } from "@/lib/period";
 import { formatDate, formatPKR, fullName, monthLabel } from "@/lib/utils";
 import { Card, PageHeader, StatCard } from "@/components/ui";
+import { PeriodFilter } from "@/components/period-filter";
 import { FeeBadge, TypeBadge } from "@/components/badges";
 import { FinanceCharts } from "@/components/charts";
 import { PAYMENT_METHOD_LABELS } from "@/lib/constants";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | undefined>>;
+}) {
   const user = await requirePermission("dashboard.view");
+  const params = await searchParams;
+  const period = periodFromParams(params);
   const data = await getDashboardData();
   const showAnalytics = can(user.role, "finance.analytics");
+  const pnl = showAnalytics ? await getProfitAndLoss(period) : null;
+  const yearly = showAnalytics ? await getYearlyMonthTable(period.year) : [];
 
   return (
     <div>
@@ -29,10 +40,11 @@ export default async function DashboardPage() {
         title="Dashboard"
         subtitle={
           showAnalytics
-            ? `Live academic and finance overview for ${monthLabel(data.month, data.year)}.`
+            ? `Live academic overview plus posted finance for ${period.label}.`
             : `Operational overview for ${monthLabel(data.month, data.year)}.`
         }
       />
+      {showAnalytics ? <PeriodFilter action="/" period={period} /> : null}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Total students" value={data.totalStudents} icon={<GraduationCap className="h-5 w-5" />} tone="navy" />
         <StatCard label="Teachers / staff" value={data.totalStaff} icon={<Users className="h-5 w-5" />} tone="teal" />
@@ -41,27 +53,35 @@ export default async function DashboardPage() {
         <StatCard label="Scholarship" value={data.scholarshipStudents} icon={<BadgePercent className="h-5 w-5" />} tone="sky" />
         <StatCard label="Need-based" value={data.needBasedStudents} icon={<HeartHandshake className="h-5 w-5" />} tone="gold" />
         <StatCard label="Self-financed" value={data.selfFinancedStudents} icon={<GraduationCap className="h-5 w-5" />} />
-        {showAnalytics ? (
+        {showAnalytics && pnl ? (
           <>
-            <StatCard label="Fee collected" value={formatPKR(data.totalFeeCollected)} hint="Current month" icon={<Banknote className="h-5 w-5" />} />
-            <StatCard label="Today's income" value={formatPKR(data.todayIncome)} icon={<Wallet className="h-5 w-5" />} />
-            <StatCard label="Monthly income" value={formatPKR(data.monthlyIncome)} icon={<Wallet className="h-5 w-5" />} tone="navy" />
+            <StatCard label="Fee collected" value={formatPKR(pnl.collected)} hint={period.label} href="/finance/fees" icon={<Banknote className="h-5 w-5" />} />
+            <StatCard label="Total income" value={formatPKR(pnl.totalIncome)} href="/finance" icon={<Wallet className="h-5 w-5" />} />
+            <StatCard label={pnl.net >= 0 ? "Net profit" : "Net loss"} value={formatPKR(pnl.net)} href="/finance/profit-loss" icon={<Wallet className="h-5 w-5" />} tone="navy" />
           </>
         ) : null}
       </div>
 
-      {showAnalytics ? (
+      {showAnalytics && pnl ? (
       <div className="mt-6 grid gap-4 xl:grid-cols-3">
         <Card title="Monthly income summary" className="xl:col-span-2">
-          <FinanceCharts data={data.monthlySeries} />
+          <FinanceCharts data={yearly.map((row) => ({
+            label: row.label,
+            income: row.income,
+            expenses: row.expenses,
+            fees: row.fees,
+            payroll: row.payroll,
+            outstanding: row.outstanding,
+            net: row.net,
+          }))} />
         </Card>
         <Card title="Net position">
           <dl className="space-y-3 text-sm">
-            <Row label="Total income" value={formatPKR(data.totalIncome)} />
-            <Row label="Total expenses" value={formatPKR(data.totalExpenses)} />
-            <Row label="Net balance" value={formatPKR(data.netBalance)} />
-            <Row label="Expected fees" value={formatPKR(data.expectedFees)} />
-            <Row label="This month expenses" value={formatPKR(data.monthlyExpenses)} />
+            <Row label="Total income" value={formatPKR(pnl.totalIncome)} />
+            <Row label="Total expenses" value={formatPKR(pnl.totalExpenses)} />
+            <Row label="Payroll" value={formatPKR(pnl.payroll + pnl.advances)} />
+            <Row label="Outstanding fees" value={formatPKR(pnl.outstanding)} />
+            <Row label="Net" value={formatPKR(pnl.net)} />
           </dl>
         </Card>
       </div>

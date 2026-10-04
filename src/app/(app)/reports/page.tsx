@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { ensureCurrentMonthFees } from "@/lib/finance";
 import { currentMonthYear, formatDate, formatPKR, fullName } from "@/lib/utils";
 import { Card, PageHeader } from "@/components/ui";
+import { ReportPeriodLaunch } from "@/components/report-period";
 import { STUDENT_TYPE_LABELS, INCOME_CATEGORY_LABELS, EXPENSE_CATEGORY_LABELS, FACULTY_TYPE_LABELS } from "@/lib/constants";
 
 const REPORTS: Array<{ type: string; title: string; group: string; analytics?: boolean }> = [
@@ -23,6 +24,10 @@ const REPORTS: Array<{ type: string; title: string; group: string; analytics?: b
   { type: "outstanding", title: "Outstanding fees", group: "Financial reports" },
   { type: "class-fees", title: "Class-wise fee collection", group: "Financial reports" },
   { type: "payment-history", title: "Student payment history", group: "Financial reports" },
+  { type: "ledger", title: "Transaction ledger", group: "Financial reports" },
+  { type: "payroll", title: "Payroll", group: "Financial reports" },
+  { type: "advances", title: "Advance salaries", group: "Financial reports" },
+  { type: "profit-loss", title: "Profit & Loss", group: "Financial reports", analytics: true },
   { type: "income-vs-expenses", title: "Income vs expenses", group: "Financial reports", analytics: true },
 ];
 
@@ -42,6 +47,15 @@ export default async function ReportsPage({
       <PageHeader
         title="Reports"
         subtitle="All figures come from the same student, class, and finance records used by the dashboards."
+        actions={
+          can(user.role, "reports.export") ? (
+            <ReportPeriodLaunch
+              types={visibleReports
+                .filter((report) => report.group === "Financial reports")
+                .map((report) => ({ type: report.type, title: report.title }))}
+            />
+          ) : null
+        }
       />
       <div className="grid gap-4 lg:grid-cols-3">
         {groups.map((group) => (

@@ -34,7 +34,8 @@ export async function POST(request: Request) {
     return NextResponse.redirect(new URL(next, request.url), 303);
   } catch (error) {
     console.error("Login failed", error);
-    login.searchParams.set("error", "server");
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+    login.searchParams.set("error", code === "PGRST205" || code === "42P01" ? "schema" : "server");
     return NextResponse.redirect(login, 303);
   }
 }

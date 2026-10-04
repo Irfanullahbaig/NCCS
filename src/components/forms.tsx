@@ -772,11 +772,14 @@ export function PaymentForm({
 }) {
   const { error, pending, submit } = useSubmit();
   const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
   const [studentId, setStudentId] = useState(presetStudentId ?? "");
+  const [months, setMonths] = useState<number[]>([now.getMonth() + 1]);
   const selected = students.find((student) => student.id === studentId);
 
   useEffect(() => {
     setStudentId(presetStudentId ?? "");
+    setMonths([new Date().getMonth() + 1]);
   }, [presetStudentId, open]);
 
   return (
@@ -796,7 +799,48 @@ export function PaymentForm({
             onChange={(student) => setStudentId(student?.id ?? "")}
           />
         </Field>
-        <Field label="Amount">
+        {selected ? (
+          <p className="sm:col-span-2 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            ID: <strong className="text-navy">{selected.registrationNo || "—"}</strong>
+            {selected.classLabel ? <> · Class / program: <strong className="text-navy">{selected.classLabel}</strong></> : null}
+          </p>
+        ) : null}
+        <Field label="Fee type">
+          <Select name="feeType" defaultValue="STUDENT_FEE" required>
+            {Object.entries(INCOME_CATEGORY_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Fee year">
+          <Input type="number" name="year" min="2000" defaultValue={now.getFullYear()} required />
+        </Field>
+        <Field label="Fee months" className="sm:col-span-2">
+          <p className="mb-2 text-xs text-slate-500">Select every month this payment covers. The amount below is recorded separately for each selected month.</p>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+            {MONTH_NAMES.map((label, index) => {
+              const value = index + 1;
+              const checked = months.includes(value);
+              return (
+                <label key={value} className="flex items-center gap-2 rounded-xl border border-slate-200 px-2 py-1.5 text-sm">
+                  <input
+                    type="checkbox"
+                    name="months"
+                    value={value}
+                    checked={checked}
+                    onChange={(event) => {
+                      setMonths((current) =>
+                        event.target.checked ? [...current, value].sort((a, b) => a - b) : current.filter((month) => month !== value),
+                      );
+                    }}
+                  />
+                  {label.slice(0, 3)}
+                </label>
+              );
+            })}
+          </div>
+        </Field>
+        <Field label="Amount per selected month">
           <Input type="number" min="1" name="amount" defaultValue={selected?.remaining ?? ""} required />
         </Field>
         <Field label="Payment date"><Input type="date" name="paymentDate" defaultValue={today} required /></Field>
@@ -807,7 +851,7 @@ export function PaymentForm({
             ))}
           </Select>
         </Field>
-        <Field label="Reference number"><Input name="referenceNumber" /></Field>
+        <Field label="Receipt / reference"><Input name="referenceNumber" /></Field>
         <Field label="Notes" className="sm:col-span-2"><Textarea name="notes" /></Field>
         <div className="sm:col-span-2 space-y-3">
           <ErrorText>{error}</ErrorText>
@@ -1075,6 +1119,7 @@ export function SalaryPaymentForm({
   presetStaffId,
   defaultMonth,
   defaultYear,
+  defaultKind = "SALARY",
   initial,
 }: {
   open: boolean;
@@ -1083,6 +1128,7 @@ export function SalaryPaymentForm({
   presetStaffId?: string;
   defaultMonth: number;
   defaultYear: number;
+  defaultKind?: "SALARY" | "ADVANCE";
   initial?: {
     paymentId: string;
     staffId: string;
@@ -1136,6 +1182,12 @@ export function SalaryPaymentForm({
         ) : null}
         {initial ? null : (
           <>
+            <Field label="Payment kind">
+              <Select name="kind" defaultValue={defaultKind ?? "SALARY"} required>
+                <option value="SALARY">Monthly salary</option>
+                <option value="ADVANCE">Advance salary</option>
+              </Select>
+            </Field>
             <Field label="Salary month">
               <Select name="month" defaultValue={String(defaultMonth)} required>
                 {Array.from({ length: 12 }, (_, index) => (
@@ -1183,12 +1235,14 @@ export function RecordSalaryButton({
   defaultYear,
   presetStaffId,
   label = "Record salary",
+  defaultKind = "SALARY",
 }: {
   teachers: SalaryTeacherOption[];
   defaultMonth: number;
   defaultYear: number;
   presetStaffId?: string;
   label?: string;
+  defaultKind?: "SALARY" | "ADVANCE";
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -1201,6 +1255,7 @@ export function RecordSalaryButton({
         defaultMonth={defaultMonth}
         defaultYear={defaultYear}
         presetStaffId={presetStaffId}
+        defaultKind={defaultKind}
       />
     </>
   );

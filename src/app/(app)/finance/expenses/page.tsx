@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
@@ -68,7 +69,11 @@ export default async function ExpensesPage({
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id}>
-                    <td>{row.expenseId}</td>
+                    <td>
+                      <Link href={`/finance/ledger?txn=${encodeURIComponent(row.expenseId)}`} className="font-medium text-navy">
+                        {row.expenseId}
+                      </Link>
+                    </td>
                     <td>{formatDate(row.date)}</td>
                     <td>{EXPENSE_CATEGORY_LABELS[row.category]}</td>
                     <td>

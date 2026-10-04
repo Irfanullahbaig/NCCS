@@ -4,23 +4,36 @@ import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { ensureCurrentMonthFees } from "@/lib/finance";
-import { currentMonthYear, formatPKR, fullName, monthLabel } from "@/lib/utils";
-import { PageHeader, EmptyState, ViewOnlyBadge, StatCard } from "@/components/ui";
+import { currentMonthYear, formatDate, formatPKR, fullName, monthLabel, MONTH_NAMES } from "@/lib/utils";
+import { PageHeader, EmptyState, ViewOnlyBadge, StatCard, Select, Input } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
 import { RecordPaymentButton } from "@/components/forms";
+import { PAYMENT_METHOD_LABELS } from "@/lib/constants";
 
-export default async function FeesPage() {
+export default async function FeesPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | undefined>>;
+}) {
   const user = await requirePermission("fees.view");
   await ensureCurrentMonthFees();
-  const { month, year } = currentMonthYear();
+  const params = await searchParams;
+  const fallback = currentMonthYear();
+  const month = Number(params.month) || fallback.month;
+  const year = Number(params.year) || fallback.year;
   const recordsRes = await db()
     .from("FeeRecord")
-    .select("*, student:Student(*, class:Class(*, program:Program(*)))")
+    .select("*, student:Student(*, class:Class(*, program:Program(*))), payments:FeePayment(*)")
     .eq("month", month)
     .eq("year", year)
     .order("remainingAmount", { ascending: false });
   if (recordsRes.error) throw recordsRes.error;
-  const records = recordsRes.data ?? [];
+  const records = (recordsRes.data ?? []).map((record) => ({
+    ...record,
+    payments: (record.payments ?? [])
+      .filter((payment) => !payment.voidedAt)
+      .sort((a, b) => String(b.paymentDate).localeCompare(String(a.paymentDate))),
+  }));
 
   const students = records
     .filter((record) => record.status !== "WAIVED" && record.remainingAmount > 0)
@@ -51,9 +64,18 @@ export default async function FeesPage() {
     <div>
       <PageHeader
         title="Student fees"
-        subtitle={`Current period ${monthLabel(month, year)}. Status is derived from expected amount, payments, and waivers.`}
+        subtitle={`Fee month ${monthLabel(month, year)}. Status is derived from expected amount, payments, and waivers.`}
         actions={can(user.role, "fees.record") ? <RecordPaymentButton students={students} /> : <ViewOnlyBadge />}
       />
+      <form className="mb-4 grid gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:grid-cols-4">
+        <Select name="month" defaultValue={String(month)}>
+          {MONTH_NAMES.map((label, index) => (
+            <option key={label} value={index + 1}>{label}</option>
+          ))}
+        </Select>
+        <Input type="number" name="year" min="2000" defaultValue={year} />
+        <button className="h-10 rounded-xl bg-navy text-sm font-medium text-white">Apply</button>
+      </form>
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Students" value={records.length} hint={monthLabel(month, year)} icon={<Users className="h-5 w-5" />} tone="navy" />
         <StatCard label="Payable" value={formatPKR(payable)} hint="Total expected fees" icon={<CircleDollarSign className="h-5 w-5" />} />
@@ -75,33 +97,39 @@ export default async function FeesPage() {
                   <th>Type</th>
                   <th>Expected</th>
                   <th>Paid</th>
-                  <th>Waived</th>
                   <th>Remaining</th>
+                  <th>Last payment</th>
+                  <th>Receipt</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {records.map((record) => (
-                  <tr key={record.id}>
-                    <td>
-                      <Link href={`/students/${record.student.id}`} className="font-medium text-navy">
-                        {fullName(record.student.firstName, record.student.lastName)}
-                      </Link>
-                    </td>
-                    <td>{record.student.class.name} — {record.student.class.program.name}</td>
-                    <td><TypeBadge type={record.student.studentType} /></td>
-                    <td>{formatPKR(record.expectedAmount)}</td>
-                    <td>{formatPKR(record.paidAmount)}</td>
-                    <td>{formatPKR(record.waivedAmount)}</td>
-                    <td>{formatPKR(record.remainingAmount)}</td>
-                    <td><FeeBadge status={record.status} /></td>
-                  </tr>
-                ))}
+                {records.map((record) => {
+                  const last = record.payments[0];
+                  return (
+                    <tr key={record.id}>
+                      <td>
+                        <Link href={`/students/${record.student.id}`} className="font-medium text-navy">
+                          {fullName(record.student.firstName, record.student.lastName)}
+                        </Link>
+                        <div className="text-xs text-slate-500">{record.student.registrationNo}</div>
+                      </td>
+                      <td>{record.student.class.name} — {record.student.class.program.name}</td>
+                      <td><TypeBadge type={record.student.studentType} /></td>
+                      <td>{formatPKR(record.expectedAmount)}</td>
+                      <td>{formatPKR(record.paidAmount)}</td>
+                      <td>{formatPKR(record.remainingAmount)}</td>
+                      <td>{last ? `${formatDate(last.paymentDate)} · ${PAYMENT_METHOD_LABELS[last.paymentMethod]}` : "—"}</td>
+                      <td>{last?.referenceNumber || last?.id.slice(0, 8) || "—"}</td>
+                      <td><FeeBadge status={record.status} /></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         ) : (
-          <EmptyState title="No fee records" description="Add students to generate monthly fee records automatically." />
+          <EmptyState title="No fee records" description="Add students or choose another month. Monthly fee records are generated for the current period automatically." />
         )}
       </div>
     </div>

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
@@ -119,12 +120,21 @@ export default async function IncomePage({
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id} className={row.voidedAt ? "opacity-50" : ""}>
-                    <td>{row.incomeId}</td>
+                    <td>
+                      <Link href={`/finance/ledger?txn=${encodeURIComponent(row.incomeId)}`} className="font-medium text-navy">
+                        {row.incomeId}
+                      </Link>
+                    </td>
                     <td>{formatDate(row.date)}</td>
                     <td>{INCOME_CATEGORY_LABELS[row.category]}</td>
                     <td>
-                      {row.student ? fullName(row.student.firstName, row.student.lastName) : row.source || "—"}
+                      {row.student ? (
+                        <Link href={`/students/${row.student.id}`} className="text-navy">
+                          {fullName(row.student.firstName, row.student.lastName)}
+                        </Link>
+                      ) : row.source || "—"}
                       {row.class ? <div className="text-xs text-slate-500">{row.class.name} {row.class.program.name}</div> : null}
+                      <div className="text-xs text-slate-500">{row.source}</div>
                     </td>
                     <td>{PAYMENT_METHOD_LABELS[row.paymentMethod]}</td>
                     <td>{formatPKR(row.amount)}</td>
