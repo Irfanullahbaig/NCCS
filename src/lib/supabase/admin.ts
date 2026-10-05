@@ -6,6 +6,7 @@ export type AdminClient = SupabaseClient<Database>;
 
 export function createAdminClient(): AdminClient {
   return createClient<Database>(requireSupabaseUrl(), requireSupabaseSecretKey(), {
-    auth: { persistSession: false, autoRefreshToken: false },
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    global: { headers: { Accept: "application/json" } },
   });
 }

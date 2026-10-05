@@ -1,6 +1,14 @@
 import type { ExpenseCategory, FeeStatus, IncomeCategory, PaymentMethod } from "@/lib/enums";
 import { db, newId, nowIso } from "@/lib/db";
-import { currentMonthYear, lastDayOfMonth, startOfDay } from "@/lib/utils";
+import { LATE_FEE_AMOUNT } from "@/lib/constants";
+import {
+  calendarDateFromValue,
+  currentMonthYear,
+  feeDueDate,
+  feeDueDateIso,
+  isPastFeeDue,
+  startOfDay,
+} from "@/lib/utils";
 import { nextExpenseId, nextIncomeId } from "@/lib/ids";
 import { writeAudit } from "@/lib/audit";
 
@@ -8,15 +16,17 @@ export function deriveFeeStatus(input: {
   expected: number;
   paid: number;
   waived: number;
+  fine?: number;
   dueDate: Date | string;
   now?: Date;
 }): { remaining: number; status: FeeStatus } {
   const expected = Math.max(0, Math.round(input.expected));
   const paid = Math.max(0, Math.round(input.paid));
   const waived = Math.max(0, Math.round(input.waived));
-  const remaining = Math.max(0, expected - paid - waived);
+  const fine = Math.max(0, Math.round(input.fine ?? 0));
+  const remaining = Math.max(0, expected + fine - paid - waived);
 
-  if (expected > 0 && waived >= expected) {
+  if (expected > 0 && waived >= expected && remaining <= 0) {
     return { remaining: 0, status: "WAIVED" };
   }
   if (remaining <= 0) {
@@ -31,6 +41,13 @@ export function deriveFeeStatus(input: {
     return { remaining, status: "OVERDUE" };
   }
   return { remaining, status: "PENDING" };
+}
+
+function paidOnTime(payments: Array<{ amount: number; paymentDate: Date | string; voidedAt?: string | null }>, year: number, month: number) {
+  const due = feeDueDateIso(year, month);
+  return payments
+    .filter((payment) => !payment.voidedAt && calendarDateFromValue(payment.paymentDate) <= due)
+    .reduce((sum, payment) => sum + payment.amount, 0);
 }
 
 export async function recalculateFeeRecord(feeRecordId: string) {
@@ -50,7 +67,8 @@ export async function recalculateFeeRecord(feeRecordId: string) {
     expected: record.expectedAmount,
     paid,
     waived: record.waivedAmount,
-    dueDate: record.dueDate,
+    fine: Number(record.fineAmount ?? 0),
+    dueDate: feeDueDate(record.year, record.month),
   });
 
   const { data: updated, error: updateError } = await db()
@@ -66,6 +84,78 @@ export async function recalculateFeeRecord(feeRecordId: string) {
     .single();
   if (updateError) throw updateError;
   return updated;
+}
+
+export async function applyLateFineToRecord(feeRecordId: string) {
+  const { data: record, error } = await db().from("FeeRecord").select("*").eq("id", feeRecordId).maybeSingle();
+  if (error) throw error;
+  if (!record) return null;
+  return applyLateFineOnRecord(record);
+}
+
+async function applyLateFineOnRecord(
+  record: {
+    id: string;
+    status: string;
+    waivedAmount: number;
+    expectedAmount: number;
+    paidAmount: number;
+    remainingAmount: number;
+    fineAmount?: number | null;
+    month: number;
+    year: number;
+    payments?: Array<{ amount: number; paymentDate: Date | string; voidedAt?: string | null }>;
+  },
+) {
+  if (record.waivedAmount >= record.expectedAmount) return record;
+  if ((record.fineAmount ?? 0) >= LATE_FEE_AMOUNT) return record;
+  if (!isPastFeeDue(record.year, record.month)) return record;
+
+  let payments = record.payments;
+  if (!payments) {
+    const paymentsRes = await db()
+      .from("FeePayment")
+      .select("amount, paymentDate, voidedAt")
+      .eq("feeRecordId", record.id);
+    if (paymentsRes.error) throw paymentsRes.error;
+    payments = paymentsRes.data ?? [];
+  }
+  const onTime = paidOnTime(payments, record.year, record.month);
+  if (onTime + record.waivedAmount >= record.expectedAmount) return record;
+
+  const derived = deriveFeeStatus({
+    expected: record.expectedAmount,
+    paid: record.paidAmount,
+    waived: record.waivedAmount,
+    fine: LATE_FEE_AMOUNT,
+    dueDate: feeDueDate(record.year, record.month),
+  });
+  const updated = await db()
+    .from("FeeRecord")
+    .update({
+      fineAmount: LATE_FEE_AMOUNT,
+      dueDate: feeDueDate(record.year, record.month).toISOString(),
+      remainingAmount: derived.remaining,
+      status: derived.status,
+      updatedAt: nowIso(),
+    })
+    .eq("id", record.id)
+    .select()
+    .single();
+  if (updated.error) throw updated.error;
+  return updated.data;
+}
+
+export async function applyLateFines() {
+  const records = await db()
+    .from("FeeRecord")
+    .select("id, status, waivedAmount, expectedAmount, paidAmount, remainingAmount, fineAmount, month, year, payments:FeePayment(amount, paymentDate, voidedAt)")
+    .neq("status", "WAIVED");
+  if (records.error) throw records.error;
+  const pending = (records.data ?? []).filter((record) => (record.fineAmount ?? 0) < LATE_FEE_AMOUNT && isPastFeeDue(record.year, record.month));
+  for (let index = 0; index < pending.length; index += 10) {
+    await Promise.all(pending.slice(index, index + 10).map((record) => applyLateFineOnRecord(record)));
+  }
 }
 
 export async function ensureStudentFeeRecord(input: {
@@ -84,7 +174,10 @@ export async function ensureStudentFeeRecord(input: {
     .eq("month", month)
     .maybeSingle();
   if (existing.error) throw existing.error;
-  if (existing.data) return existing.data;
+  if (existing.data) {
+    const updated = await applyLateFineOnRecord(existing.data);
+    return updated ?? existing.data;
+  }
 
   const student = await db()
     .from("Student")
@@ -96,8 +189,8 @@ export async function ensureStudentFeeRecord(input: {
 
   const expected = student.data.feeAmount;
   const waived = student.data.studentType === "SCHOLARSHIP" ? expected : 0;
-  const dueDate = lastDayOfMonth(year, month);
-  const derived = deriveFeeStatus({ expected, paid: 0, waived, dueDate });
+  const dueDate = feeDueDate(year, month);
+  const derived = deriveFeeStatus({ expected, paid: 0, waived, fine: 0, dueDate });
   const stamp = nowIso();
 
   const created = await db()
@@ -123,31 +216,85 @@ export async function ensureStudentFeeRecord(input: {
     .select()
     .single();
   if (created.error) throw created.error;
-  return created.data;
+  const applied = await applyLateFineOnRecord(created.data);
+  return applied ?? created.data;
+}
+
+let feeMaintenance: Promise<void> | null = null;
+let feeMaintenanceAt = 0;
+const FEE_MAINTENANCE_MS = 45_000;
+
+export function invalidateFeeMaintenance() {
+  feeMaintenanceAt = 0;
 }
 
 export async function ensureCurrentMonthFees(userId?: string | null) {
+  const now = Date.now();
+  if (feeMaintenance) return feeMaintenance;
+  if (now - feeMaintenanceAt < FEE_MAINTENANCE_MS) return;
+  feeMaintenance = runFeeMaintenance(userId).finally(() => {
+    feeMaintenance = null;
+    feeMaintenanceAt = Date.now();
+  });
+  return feeMaintenance;
+}
+
+async function runFeeMaintenance(userId?: string | null) {
   const { month, year } = currentMonthYear();
-  const students = await db().from("Student").select("id").is("deletedAt", null).eq("status", "ACTIVE");
-  if (students.error) throw students.error;
-  for (const student of students.data ?? []) {
-    await ensureStudentFeeRecord({ studentId: student.id, month, year, userId });
+  const [studentsRes, existingRes] = await Promise.all([
+    db()
+      .from("Student")
+      .select("id, classId, feeAmount, studentType, class:Class(academicYearId)")
+      .is("deletedAt", null)
+      .eq("status", "ACTIVE"),
+    db().from("FeeRecord").select("studentId").eq("month", month).eq("year", year),
+  ]);
+  if (studentsRes.error) throw studentsRes.error;
+  if (existingRes.error) throw existingRes.error;
+
+  const have = new Set((existingRes.data ?? []).map((row) => row.studentId));
+  const dueDate = feeDueDate(year, month);
+  const stamp = nowIso();
+  const missing = (studentsRes.data ?? []).flatMap((student) => {
+    if (have.has(student.id) || !student.class) return [];
+    const expected = student.feeAmount;
+    const waived = student.studentType === "SCHOLARSHIP" ? expected : 0;
+    const derived = deriveFeeStatus({ expected, paid: 0, waived, fine: 0, dueDate });
+    return [{
+      id: newId(),
+      studentId: student.id,
+      classId: student.classId,
+      academicYearId: student.class.academicYearId,
+      month,
+      year,
+      expectedAmount: expected,
+      paidAmount: 0,
+      waivedAmount: waived,
+      remainingAmount: derived.remaining,
+      status: derived.status,
+      dueDate: dueDate.toISOString(),
+      createdAt: stamp,
+      updatedAt: stamp,
+      createdById: userId ?? null,
+      updatedById: userId ?? null,
+    }];
+  });
+  if (missing.length) {
+    const inserted = await db().from("FeeRecord").insert(missing);
+    if (inserted.error) throw inserted.error;
   }
+  await applyLateFines();
   await refreshOverdueStatuses();
 }
 
 export async function refreshOverdueStatuses() {
   const today = startOfDay(new Date()).toISOString();
-  const overdue = await db().from("FeeRecord").select("*").eq("status", "PENDING").lt("dueDate", today);
-  if (overdue.error) throw overdue.error;
-  for (const record of overdue.data ?? []) {
-    if (record.waivedAmount >= record.expectedAmount) continue;
-    const { error } = await db()
-      .from("FeeRecord")
-      .update({ status: "OVERDUE", updatedAt: nowIso() })
-      .eq("id", record.id);
-    if (error) throw error;
-  }
+  const { error } = await db()
+    .from("FeeRecord")
+    .update({ status: "OVERDUE", updatedAt: nowIso() })
+    .eq("status", "PENDING")
+    .lt("dueDate", today);
+  if (error) throw error;
 }
 
 export async function recordStudentPayment(input: {
@@ -179,11 +326,9 @@ export async function recordStudentPayment(input: {
     year: input.year,
     userId: input.userId,
   });
-  const live = await db().from("FeeRecord").select("*").eq("id", feeRecord.id).single();
-  if (live.error) throw live.error;
-  if (live.data.status === "WAIVED") throw new Error("This fee is waived and does not require payment");
-  if (amount > live.data.remainingAmount) {
-    throw new Error(`Payment exceeds remaining balance of Rs. ${live.data.remainingAmount.toLocaleString("en-PK")}`);
+  if (feeRecord.status === "WAIVED") throw new Error("This fee is waived and does not require payment");
+  if (amount > feeRecord.remainingAmount) {
+    throw new Error(`Payment exceeds remaining balance of Rs. ${feeRecord.remainingAmount.toLocaleString("en-PK")}`);
   }
 
   const stamp = nowIso();
@@ -194,7 +339,7 @@ export async function recordStudentPayment(input: {
     date: nowIso(input.paymentDate),
     amount,
     category: (input.category ?? "STUDENT_FEE") as IncomeCategory,
-    source: `${student.data.firstName} ${student.data.lastName} — ${student.data.class.name} ${student.data.class.program.name} — ${live.data.month}/${live.data.year}`,
+    source: `${student.data.firstName} ${student.data.lastName} — ${student.data.class.name} ${student.data.class.program.name} — ${feeRecord.month}/${feeRecord.year}`,
     studentId: student.data.id,
     classId: student.data.classId,
     paymentMethod: input.paymentMethod,
@@ -212,7 +357,7 @@ export async function recordStudentPayment(input: {
     .from("FeePayment")
     .insert({
       id: newId(),
-      feeRecordId: live.data.id,
+      feeRecordId: feeRecord.id,
       studentId: student.data.id,
       amount,
       paymentDate: nowIso(input.paymentDate),
@@ -229,7 +374,8 @@ export async function recordStudentPayment(input: {
     .single();
   if (payment.error) throw payment.error;
 
-  await recalculateFeeRecord(live.data.id);
+  await recalculateFeeRecord(feeRecord.id);
+  invalidateFeeMaintenance();
   await writeAudit({
     userId: input.userId,
     action: "PAYMENT_RECORDED",
@@ -237,7 +383,7 @@ export async function recordStudentPayment(input: {
     entityId: payment.data.id,
     details: { studentId: input.studentId, amount, incomeId: income.data.incomeId },
   });
-  return { payment: payment.data, income: income.data, feeRecordId: live.data.id };
+  return { payment: payment.data, income: income.data, feeRecordId: feeRecord.id };
 }
 
 export async function voidStudentPayment(input: { paymentId: string; reason: string; userId: string }) {
@@ -262,6 +408,7 @@ export async function voidStudentPayment(input: { paymentId: string; reason: str
     .eq("id", payment.data.incomeTransactionId);
   if (incomeUpdate.error) throw incomeUpdate.error;
   await recalculateFeeRecord(payment.data.feeRecordId);
+  invalidateFeeMaintenance();
   await writeAudit({
     userId: input.userId,
     action: "PAYMENT_VOIDED",

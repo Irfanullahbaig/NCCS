@@ -10,7 +10,7 @@ import {
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { getDashboardData } from "@/lib/queries";
-import { getProfitAndLoss, getYearlyMonthTable } from "@/lib/ledger";
+import { getPeriodFinance, getYearlyMonthTable } from "@/lib/ledger";
 import { periodFromParams } from "@/lib/period";
 import { formatDate, formatPKR, fullName, monthLabel } from "@/lib/utils";
 import { Card, PageHeader, StatCard } from "@/components/ui";
@@ -27,10 +27,12 @@ export default async function DashboardPage({
   const user = await requirePermission("dashboard.view");
   const params = await searchParams;
   const period = periodFromParams(params);
-  const data = await getDashboardData();
   const showAnalytics = can(user.role, "finance.analytics");
-  const pnl = showAnalytics ? await getProfitAndLoss(period) : null;
-  const yearly = showAnalytics ? await getYearlyMonthTable(period.year) : [];
+  const [data, pnl, yearly] = await Promise.all([
+    getDashboardData(),
+    showAnalytics ? getPeriodFinance(period) : Promise.resolve(null),
+    showAnalytics ? getYearlyMonthTable(period.year) : Promise.resolve([]),
+  ]);
 
   return (
     <div>
@@ -109,11 +111,11 @@ export default async function DashboardPage({
                   {data.pendingFeeRecords.map((record) => (
                     <tr key={record.id}>
                       <td>
-                        <Link href={`/students/${record.student.id}`} className="font-medium text-navy">
-                          {fullName(record.student.firstName, record.student.lastName)}
+                        <Link href={`/students/${record.student?.id}`} className="font-medium text-navy">
+                          {fullName(record.student?.firstName ?? "", record.student?.lastName ?? "")}
                         </Link>
                       </td>
-                      <td><TypeBadge type={record.student.studentType} /></td>
+                      <td><TypeBadge type={record.student?.studentType ?? "SELF"} /></td>
                       <td>{formatPKR(record.remainingAmount)}</td>
                       <td><FeeBadge status={record.status} /></td>
                     </tr>
@@ -128,9 +130,9 @@ export default async function DashboardPage({
         <Card title="Recent fee payments" action={<Link href="/finance/fees" className="text-sm text-teal">View all</Link>}>
           <RecentTable
             empty="No payments recorded yet."
-            rows={data.recentPayments.map((payment) => [
+            rows={data.recentPayments.filter((payment) => payment.student).map((payment) => [
               fullName(payment.student.firstName, payment.student.lastName),
-              `${payment.student.class.name} ${payment.student.class.program.name}`,
+              `${payment.student.class?.name ?? ""} ${payment.student.class?.program?.name ?? ""}`.trim(),
               formatPKR(payment.amount),
               PAYMENT_METHOD_LABELS[payment.paymentMethod],
               formatDate(payment.paymentDate),
@@ -144,7 +146,7 @@ export default async function DashboardPage({
             headers={["Student", "Class", "Type", "Added"]}
             rows={data.recentStudents.map((student) => [
               fullName(student.firstName, student.lastName),
-              `${student.class.name} ${student.class.program.name}`,
+              `${student.class?.name ?? ""} ${student.class?.program?.name ?? ""}`.trim(),
               STUDENT_LABEL(student.studentType),
               formatDate(student.createdAt),
             ])}

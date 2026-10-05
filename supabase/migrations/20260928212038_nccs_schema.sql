@@ -217,6 +217,7 @@ create table public."FeeRecord" (
   "expectedAmount" numeric(12, 2) not null,
   "paidAmount" numeric(12, 2) not null default 0,
   "waivedAmount" numeric(12, 2) not null default 0,
+  "fineAmount" numeric(12, 2) not null default 0,
   "remainingAmount" numeric(12, 2) not null,
   status public."FeeStatus" not null default 'PENDING',
   "createdAt" timestamptz not null default now(),

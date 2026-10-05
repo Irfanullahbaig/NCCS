@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { LATE_FEE_DAY } from "@/lib/constants";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -88,6 +89,32 @@ export function lastDayOfMonth(year: number, month: number) {
 
 export function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+export function calendarDateInKarachi(date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: PK_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+export function feeDueDateIso(year: number, month: number) {
+  return `${year}-${String(month).padStart(2, "0")}-${String(LATE_FEE_DAY).padStart(2, "0")}`;
+}
+
+export function feeDueDate(year: number, month: number) {
+  return new Date(year, month - 1, LATE_FEE_DAY, 12, 0, 0);
+}
+
+export function isPastFeeDue(year: number, month: number, now = new Date()) {
+  return calendarDateInKarachi(now) > feeDueDateIso(year, month);
+}
+
+export function calendarDateFromValue(value: Date | string) {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  return calendarDateInKarachi(new Date(value));
 }
 
 export function csvEscape(value: unknown) {

@@ -36,7 +36,7 @@ export default async function OutstandingPage() {
     <div>
       <PageHeader
         title="Outstanding fees"
-        subtitle="Only remaining balances from calculated fee records. Waived scholarship fees do not appear here."
+        subtitle="Remaining balances after the 10th include a Rs. 200 late fine. Waived scholarship fees do not appear here."
         actions={
           can(user.role, "fees.record") && students.length ? (
             <RecordPaymentButton students={students} />
@@ -55,6 +55,7 @@ export default async function OutstandingPage() {
                   <th>Class</th>
                   <th>Type</th>
                   <th>Remaining</th>
+                  <th>Fine</th>
                   <th>Due</th>
                   <th>Status</th>
                 </tr>
@@ -70,6 +71,7 @@ export default async function OutstandingPage() {
                     <td>{record.student.class.name} — {record.student.class.program.name}</td>
                     <td><TypeBadge type={record.student.studentType} /></td>
                     <td>{formatPKR(record.remainingAmount)}</td>
+                    <td>{(record.fineAmount ?? 0) > 0 ? formatPKR(record.fineAmount) : "—"}</td>
                     <td>{formatDate(record.dueDate)}</td>
                     <td><FeeBadge status={record.status} /></td>
                   </tr>

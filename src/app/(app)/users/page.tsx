@@ -7,7 +7,7 @@ import { ROLE_LABELS } from "@/lib/constants";
 
 export default async function UsersPage() {
   await requirePermission("users.manage");
-  const usersRes = await db().from("User").select("*").order("createdAt", { ascending: true });
+  const usersRes = await db().from("User").select("id, name, email, role, isActive, createdAt").order("createdAt", { ascending: true });
   if (usersRes.error) throw usersRes.error;
   const users = usersRes.data ?? [];
 

@@ -122,15 +122,41 @@ export async function ensureSalaryRecord(input: {
 
 export async function ensureCurrentMonthSalaries(userId?: string | null) {
   const { month, year } = currentMonthYear();
-  const staff = await db()
-    .from("Staff")
-    .select("id")
-    .in("employmentStatus", ["ACTIVE", "ON_LEAVE"])
-    .gt("salaryAmount", 0);
-  if (staff.error) throw staff.error;
-  for (const member of staff.data ?? []) {
-    await ensureSalaryRecord({ staffId: member.id, month, year, userId });
-  }
+  const [staffRes, existingRes] = await Promise.all([
+    db()
+      .from("Staff")
+      .select("id, salaryAmount")
+      .in("employmentStatus", ["ACTIVE", "ON_LEAVE"])
+      .gt("salaryAmount", 0),
+    db().from("SalaryRecord").select("staffId").eq("month", month).eq("year", year),
+  ]);
+  if (staffRes.error) throw staffRes.error;
+  if (existingRes.error) throw existingRes.error;
+  const have = new Set((existingRes.data ?? []).map((row) => row.staffId));
+  const stamp = nowIso();
+  const missing = (staffRes.data ?? [])
+    .filter((member) => !have.has(member.id))
+    .map((member) => {
+      const expected = Math.max(0, member.salaryAmount);
+      const derived = deriveSalaryStatus(expected, 0);
+      return {
+        id: newId(),
+        staffId: member.id,
+        month,
+        year,
+        expectedAmount: expected,
+        paidAmount: 0,
+        remainingAmount: derived.remaining,
+        status: derived.status,
+        createdAt: stamp,
+        updatedAt: stamp,
+        createdById: userId ?? null,
+        updatedById: userId ?? null,
+      };
+    });
+  if (!missing.length) return;
+  const created = await db().from("SalaryRecord").insert(missing);
+  if (created.error) throw created.error;
 }
 
 export async function recordSalaryPayment(input: {

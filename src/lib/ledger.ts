@@ -53,11 +53,15 @@ export async function getLedgerEntries(period: ResolvedPeriod, filters?: {
     db()
       .from("FeePayment")
       .select("*, feeRecord:FeeRecord(*), student:Student(*, class:Class(*, program:Program(*)))")
-      .is("voidedAt", null),
+      .is("voidedAt", null)
+      .gte("paymentDate", from)
+      .lte("paymentDate", to),
     db()
       .from("SalaryPayment")
       .select("*, staff:Staff(*), salaryRecord:SalaryRecord(*)")
-      .is("voidedAt", null),
+      .is("voidedAt", null)
+      .gte("paymentDate", from)
+      .lte("paymentDate", to),
   ]);
   for (const result of [incomeRes, expenseRes, paymentsRes, salaryPaysRes]) {
     if (result.error) throw result.error;
@@ -176,7 +180,7 @@ export async function getProfitAndLoss(period: ResolvedPeriod) {
   const totalExpenses = expenses.reduce((total, row) => total + row.amount, 0);
 
   const { from, to } = isoRange(period);
-  let feeQuery = db().from("FeeRecord").select("remainingAmount, expectedAmount, paidAmount, status, month, year");
+  let feeQuery = db().from("FeeRecord").select("remainingAmount, expectedAmount, paidAmount, fineAmount, status, month, year");
   if (period.mode === "month" && period.month) {
     feeQuery = feeQuery.eq("month", period.month).eq("year", period.year);
   } else {
@@ -203,7 +207,7 @@ export async function getProfitAndLoss(period: ResolvedPeriod) {
     maintenance,
     otherExpenses,
     outstanding: feeStats.reduce((total, row) => total + row.remainingAmount, 0),
-    billed: feeStats.reduce((total, row) => total + row.expectedAmount, 0),
+    billed: feeStats.reduce((total, row) => total + row.expectedAmount + (row.fineAmount ?? 0), 0),
     collected: feeStats.reduce((total, row) => total + row.paidAmount, 0),
     studentsPaid: feeStats.filter((row) => row.status === "PAID").length,
     studentsPartial: feeStats.filter((row) => row.status === "PARTIALLY_PAID").length,
@@ -213,27 +217,80 @@ export async function getProfitAndLoss(period: ResolvedPeriod) {
   };
 }
 
+export async function getPeriodFinance(period: ResolvedPeriod) {
+  const { from, to } = isoRange(period);
+  const feeQuery =
+    period.mode === "month" && period.month
+      ? db().from("FeeRecord").select("remainingAmount, expectedAmount, paidAmount, fineAmount, status").eq("month", period.month).eq("year", period.year)
+      : db().from("FeeRecord").select("remainingAmount, expectedAmount, paidAmount, fineAmount, status").gte("dueDate", from).lte("dueDate", to);
+  const [incomeRes, expenseRes, feeRes] = await Promise.all([
+    db().from("IncomeTransaction").select("amount, category").is("voidedAt", null).gte("date", from).lte("date", to),
+    db().from("ExpenseTransaction").select("amount, category, description").is("voidedAt", null).gte("date", from).lte("date", to),
+    feeQuery,
+  ]);
+  if (incomeRes.error) throw incomeRes.error;
+  if (expenseRes.error) throw expenseRes.error;
+  if (feeRes.error) throw feeRes.error;
+  const income = incomeRes.data ?? [];
+  const expenses = expenseRes.data ?? [];
+  const feeStats = feeRes.data ?? [];
+  const totalIncome = income.reduce((total, row) => total + row.amount, 0);
+  const totalExpenses = expenses.reduce((total, row) => total + row.amount, 0);
+  const payroll = expenses.filter((row) => row.category === "SALARIES").reduce((total, row) => total + row.amount, 0);
+  const advances = expenses.filter((row) => isAdvanceExpense(row.description)).reduce((total, row) => total + row.amount, 0);
+  return {
+    totalIncome,
+    totalExpenses,
+    net: totalIncome - totalExpenses,
+    payroll,
+    advances,
+    outstanding: feeStats.reduce((total, row) => total + row.remainingAmount, 0),
+    collected: feeStats.reduce((total, row) => total + row.paidAmount, 0),
+  };
+}
+
 export async function getYearlyMonthTable(year: number) {
-  const months = [];
-  for (let month = 1; month <= 12; month += 1) {
-    const pnl = await getProfitAndLoss({
-      mode: "month",
-      year,
-      month,
-      from: new Date(year, month - 1, 1),
-      to: new Date(year, month, 0, 23, 59, 59),
-      label: monthLabel(month, year),
-    });
-    months.push({
+  const from = `${year}-01-01`;
+  const to = `${year}-12-31`;
+  const [incomeRes, expenseRes, feeRes] = await Promise.all([
+    db().from("IncomeTransaction").select("date, amount, category").is("voidedAt", null).gte("date", from).lte("date", to),
+    db().from("ExpenseTransaction").select("date, amount, category, description").is("voidedAt", null).gte("date", from).lte("date", to),
+    db().from("FeeRecord").select("month, remainingAmount, expectedAmount, paidAmount, fineAmount").eq("year", year),
+  ]);
+  if (incomeRes.error) throw incomeRes.error;
+  if (expenseRes.error) throw expenseRes.error;
+  if (feeRes.error) throw feeRes.error;
+
+  const months = Array.from({ length: 12 }, (_, index) => {
+    const month = index + 1;
+    return {
       month,
       label: monthLabel(month, year).split(" ")[0],
-      income: pnl.totalIncome,
-      expenses: pnl.totalExpenses,
-      payroll: pnl.payroll + pnl.advances,
-      fees: pnl.studentFees,
-      outstanding: pnl.outstanding,
-      net: pnl.net,
-    });
+      income: 0,
+      expenses: 0,
+      payroll: 0,
+      fees: 0,
+      outstanding: 0,
+      net: 0,
+    };
+  });
+
+  for (const row of incomeRes.data ?? []) {
+    const month = Number(String(row.date).slice(5, 7));
+    if (month < 1 || month > 12) continue;
+    months[month - 1].income += row.amount;
+    if (row.category === "STUDENT_FEE") months[month - 1].fees += row.amount;
   }
+  for (const row of expenseRes.data ?? []) {
+    const month = Number(String(row.date).slice(5, 7));
+    if (month < 1 || month > 12) continue;
+    months[month - 1].expenses += row.amount;
+    if (row.category === "SALARIES" || isAdvanceExpense(row.description)) months[month - 1].payroll += row.amount;
+  }
+  for (const row of feeRes.data ?? []) {
+    if (row.month < 1 || row.month > 12) continue;
+    months[row.month - 1].outstanding += row.remainingAmount;
+  }
+  for (const row of months) row.net = row.income - row.expenses;
   return months;
 }

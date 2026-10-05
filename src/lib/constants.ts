@@ -85,3 +85,6 @@ export const FEE_STATUS_STYLES: Record<string, string> = {
   OVERDUE: "bg-rose-50 text-rose-700 ring-rose-600/20",
   WAIVED: "bg-sky-50 text-sky-700 ring-sky-600/20",
 };
+
+export const LATE_FEE_DAY = 10;
+export const LATE_FEE_AMOUNT = 200;

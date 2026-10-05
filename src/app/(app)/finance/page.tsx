@@ -23,7 +23,7 @@ export default async function FinanceDashboardPage({
     getYearlyMonthTable(period.year),
     db()
       .from("Student")
-      .select("*, class:Class(*, program:Program(*))")
+      .select("id, firstName, lastName, fatherName, registrationNo, classId, class:Class(id, name, feeAmount, program:Program(name))")
       .is("deletedAt", null)
       .eq("status", "ACTIVE")
       .order("firstName", { ascending: true }),

@@ -7,7 +7,7 @@ import { db, newId, nowIso } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { nextStudentRegNo } from "@/lib/ids";
 import { parseDateInput } from "@/lib/utils";
-import { ensureStudentFeeRecord } from "@/lib/finance";
+import { ensureStudentFeeRecord, invalidateFeeMaintenance } from "@/lib/finance";
 
 function fail(error: string) {
   return { ok: false as const, error };
@@ -68,6 +68,7 @@ export async function createStudent(formData: FormData) {
   if (student.error) throw student.error;
 
   await ensureStudentFeeRecord({ studentId: student.data.id, userId: user.id });
+  invalidateFeeMaintenance();
   await writeAudit({
     userId: user.id,
     action: "STUDENT_ADDED",

@@ -47,10 +47,11 @@ export default async function FeesPage({
       classLabel: `${record.student.class.name} ${record.student.class.program.name}`,
     }));
 
-  const payable = records.reduce((sum, record) => sum + record.expectedAmount, 0);
+  const payable = records.reduce((sum, record) => sum + record.expectedAmount + (record.fineAmount ?? 0), 0);
   const paid = records.reduce((sum, record) => sum + record.paidAmount, 0);
   const waived = records.reduce((sum, record) => sum + record.waivedAmount, 0);
   const outstanding = records.reduce((sum, record) => sum + record.remainingAmount, 0);
+  const fines = records.reduce((sum, record) => sum + (record.fineAmount ?? 0), 0);
   const collectedShare = payable > 0 ? Math.round((paid / payable) * 100) : 0;
   const statusCounts = {
     paid: records.filter((record) => record.status === "PAID").length,
@@ -64,7 +65,7 @@ export default async function FeesPage({
     <div>
       <PageHeader
         title="Student fees"
-        subtitle={`Fee month ${monthLabel(month, year)}. Status is derived from expected amount, payments, and waivers.`}
+        subtitle={`Fee month ${monthLabel(month, year)}. Unpaid fees after the 10th add a Rs. 200 late fine.`}
         actions={can(user.role, "fees.record") ? <RecordPaymentButton students={students} /> : <ViewOnlyBadge />}
       />
       <form className="mb-4 grid gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:grid-cols-4">
@@ -81,6 +82,7 @@ export default async function FeesPage({
         <StatCard label="Payable" value={formatPKR(payable)} hint="Total expected fees" icon={<CircleDollarSign className="h-5 w-5" />} />
         <StatCard label="Paid" value={formatPKR(paid)} hint={`${collectedShare}% of payable`} icon={<Banknote className="h-5 w-5" />} tone="teal" />
         <StatCard label="Outstanding" value={formatPKR(outstanding)} hint="Remaining to collect" icon={<AlertCircle className="h-5 w-5" />} tone="rose" />
+        <StatCard label="Late fines" value={formatPKR(fines)} hint="Rs. 200 after the 10th" icon={<Clock className="h-5 w-5" />} tone="gold" />
         <StatCard label="Waived" value={formatPKR(waived)} hint={`${statusCounts.waived} scholarship / waived`} icon={<BadgePercent className="h-5 w-5" />} tone="sky" />
         <StatCard label="Fully paid" value={statusCounts.paid} hint="Students" icon={<Wallet className="h-5 w-5" />} tone="teal" />
         <StatCard label="Partially paid" value={statusCounts.partial} hint="Students" icon={<Split className="h-5 w-5" />} tone="gold" />
@@ -96,6 +98,7 @@ export default async function FeesPage({
                   <th>Class</th>
                   <th>Type</th>
                   <th>Expected</th>
+                  <th>Fine</th>
                   <th>Paid</th>
                   <th>Remaining</th>
                   <th>Last payment</th>
@@ -117,6 +120,7 @@ export default async function FeesPage({
                       <td>{record.student.class.name} — {record.student.class.program.name}</td>
                       <td><TypeBadge type={record.student.studentType} /></td>
                       <td>{formatPKR(record.expectedAmount)}</td>
+                      <td>{(record.fineAmount ?? 0) > 0 ? formatPKR(record.fineAmount) : "—"}</td>
                       <td>{formatPKR(record.paidAmount)}</td>
                       <td>{formatPKR(record.remainingAmount)}</td>
                       <td>{last ? `${formatDate(last.paymentDate)} · ${PAYMENT_METHOD_LABELS[last.paymentMethod]}` : "—"}</td>

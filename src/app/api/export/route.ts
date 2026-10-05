@@ -114,13 +114,14 @@ export async function GET(request: Request) {
     if (recordsRes.error) throw recordsRes.error;
     const records = (recordsRes.data ?? []).filter((record) => (type === "outstanding" ? record.remainingAmount > 0 : true));
     rows = [
-      ["Student", "Class", "Program", "Type", "Expected", "Paid", "Waived", "Remaining", "Status"],
+      ["Student", "Class", "Program", "Type", "Expected", "Fine", "Paid", "Waived", "Remaining", "Status"],
       ...records.map((record) => [
         fullName(record.student.firstName, record.student.lastName),
         record.student.class.name,
         record.student.class.program.name,
         record.student.studentType,
         record.expectedAmount,
+        record.fineAmount ?? 0,
         record.paidAmount,
         record.waivedAmount,
         record.remainingAmount,

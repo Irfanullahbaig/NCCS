@@ -15,8 +15,10 @@ export default async function ProfitLossPage({
   await requirePermission("finance.analytics");
   const params = await searchParams;
   const period = periodFromParams(params);
-  const data = await getProfitAndLoss(period);
-  const yearly = await getYearlyMonthTable(period.year);
+  const [data, yearly] = await Promise.all([
+    getProfitAndLoss(period),
+    getYearlyMonthTable(period.year),
+  ]);
   const query = new URLSearchParams({ period: period.mode, year: String(period.year) });
   if (period.month) query.set("month", String(period.month));
   const ledgerHref = `/finance/ledger?${query.toString()}`;

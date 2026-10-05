@@ -243,6 +243,7 @@ async function ReportPreview({ type, params }: { type: string; params: Record<st
               <th>Student</th>
               <th>Class</th>
               <th>Expected</th>
+              <th>Fine</th>
               <th>Paid</th>
               <th>Remaining</th>
               <th>Status</th>
@@ -256,6 +257,7 @@ async function ReportPreview({ type, params }: { type: string; params: Record<st
                   <td>{fullName(record.student.firstName, record.student.lastName)}</td>
                   <td>{record.student.class.name} {record.student.class.program.name}</td>
                   <td>{formatPKR(record.expectedAmount)}</td>
+                  <td>{formatPKR(record.fineAmount ?? 0)}</td>
                   <td>{formatPKR(record.paidAmount)}</td>
                   <td>{formatPKR(record.remainingAmount)}</td>
                   <td>{record.status}</td>

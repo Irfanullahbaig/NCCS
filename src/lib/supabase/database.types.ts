@@ -332,6 +332,7 @@ export type Database = {
           createdById: string | null
           dueDate: string
           expectedAmount: number
+          fineAmount: number
           id: string
           month: number
           paidAmount: number
@@ -350,6 +351,7 @@ export type Database = {
           createdById?: string | null
           dueDate: string
           expectedAmount: number
+          fineAmount?: number
           id: string
           month: number
           paidAmount?: number
@@ -368,6 +370,7 @@ export type Database = {
           createdById?: string | null
           dueDate?: string
           expectedAmount?: number
+          fineAmount?: number
           id?: string
           month?: number
           paidAmount?: number

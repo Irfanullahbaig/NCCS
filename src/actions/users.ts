@@ -19,7 +19,10 @@ export async function createUserAction(formData: FormData) {
   if (!name || !email || !password || !role) return fail("All user fields are required");
   if (password.length < 8) return fail("Password must be at least 8 characters");
 
-  const existing = await db().from("User").select("id").eq("email", email).maybeSingle();
+  const [existing, passwordHash] = await Promise.all([
+    db().from("User").select("id").eq("email", email).maybeSingle(),
+    hashPassword(password),
+  ]);
   if (existing.error) throw existing.error;
   if (existing.data) return fail("A user with this email already exists");
 
@@ -31,7 +34,7 @@ export async function createUserAction(formData: FormData) {
       name,
       email,
       role,
-      passwordHash: await hashPassword(password),
+      passwordHash,
       createdAt: stamp,
       updatedAt: stamp,
       createdById: actor.id,
@@ -118,6 +121,8 @@ export async function saveSettingsAction(formData: FormData) {
 
   revalidatePath("/settings");
   revalidatePath("/");
+  const { invalidateSchoolName } = await import("@/lib/school");
+  invalidateSchoolName();
   return { ok: true as const };
 }
 

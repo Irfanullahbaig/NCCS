@@ -94,8 +94,9 @@ export default async function StudentProfilePage({
           </Link>
         </Card>
         <div className="grid gap-4 lg:col-span-2">
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Mini label={`${monthLabel(month, year)} paid`} value={formatPKR(currentFee?.paidAmount ?? 0)} />
+            <Mini label="Late fine" value={formatPKR(currentFee?.fineAmount ?? 0)} />
             <Mini label="Total paid" value={formatPKR(totalPaid)} />
             <Mini label="Total outstanding" value={formatPKR(totalOutstanding)} />
           </div>
@@ -117,6 +118,7 @@ export default async function StudentProfilePage({
                       <th>Month</th>
                       <th>Year</th>
                       <th>Expected</th>
+                      <th>Fine</th>
                       <th>Paid</th>
                       <th>Remaining</th>
                       <th>Status</th>
@@ -133,6 +135,7 @@ export default async function StudentProfilePage({
                           <td>{monthLabel(record.month, record.year).split(" ")[0]}</td>
                           <td>{record.year}</td>
                           <td>{formatPKR(record.expectedAmount)}</td>
+                          <td>{(record.fineAmount ?? 0) > 0 ? formatPKR(record.fineAmount) : "—"}</td>
                           <td>{formatPKR(record.paidAmount)}</td>
                           <td>{formatPKR(record.remainingAmount)}</td>
                           <td><FeeBadge status={record.status} /></td>

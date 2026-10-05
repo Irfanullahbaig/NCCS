@@ -100,5 +100,5 @@ export async function requirePermission(permission: Permission) {
 }
 
 export async function hashPassword(password: string) {
-  return bcrypt.hash(password, 12);
+  return bcrypt.hash(password, 10);
 }
