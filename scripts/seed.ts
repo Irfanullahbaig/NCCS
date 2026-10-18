@@ -254,6 +254,7 @@ async function main() {
   async function addClass(input: {
     code: string;
     name: string;
+    category: string;
     programId: string;
     classTeacherId?: string;
     feeAmount: number;
@@ -265,6 +266,7 @@ async function main() {
         id: newId(),
         code: input.code,
         name: input.name,
+        category: input.category,
         programId: input.programId,
         academicYearId: year.id,
         classTeacherId: input.classTeacherId ?? null,
@@ -289,6 +291,7 @@ async function main() {
   const grade10Ics = await addClass({
     code: "CLS-0001",
     name: "Grade 10",
+    category: "ICS",
     programId: ics.id,
     classTeacherId: teacherSara.id,
     feeAmount: 5000,
@@ -297,6 +300,7 @@ async function main() {
   const grade10Fsc = await addClass({
     code: "CLS-0002",
     name: "Grade 10",
+    category: "Science",
     programId: fsc.id,
     classTeacherId: teacherImran.id,
     feeAmount: 5500,
@@ -305,6 +309,7 @@ async function main() {
   const grade9 = await addClass({
     code: "CLS-0003",
     name: "Grade 9",
+    category: "Arts",
     programId: fa.id,
     feeAmount: 4000,
     subjectIds: [byCode.ENG.id, byCode.URD.id, byCode.MTH.id],
@@ -312,6 +317,7 @@ async function main() {
   await addClass({
     code: "CLS-0004",
     name: "Grade 11",
+    category: "Commerce",
     programId: icom.id,
     feeAmount: 6000,
     subjectIds: [byCode.ACC.id, byCode.ECO.id, byCode.ENG.id],

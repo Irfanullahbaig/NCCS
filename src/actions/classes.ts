@@ -158,6 +158,21 @@ function subjectNamesFromForm(formData: FormData) {
   return names;
 }
 
+function classDetailsFromForm(formData: FormData) {
+  const selectedGrade = String(formData.get("grade") ?? "").trim();
+  const customGrade = String(formData.get("customGrade") ?? "").trim();
+  const legacyName = String(formData.get("name") ?? "").trim();
+  const name = selectedGrade === "OTHER" ? customGrade : selectedGrade || legacyName;
+
+  const selectedCategory = String(formData.get("classCategory") ?? "").trim();
+  const customCategory = String(formData.get("customClassCategory") ?? "").trim();
+  const category = selectedCategory === "OTHER" ? customCategory : selectedCategory;
+
+  if (!name) return { ok: false as const, error: "Class or grade is required" };
+  if (!category) return { ok: false as const, error: "Class category is required" };
+  return { ok: true as const, name, category };
+}
+
 function subjectCodeFromName(name: string) {
   const words = name.split(/\s+/).filter(Boolean);
   const fromWords = words.length > 1
@@ -227,12 +242,12 @@ async function replaceClassSubjects(classId: string, subjectIds: string[]) {
 
 export async function createClass(formData: FormData) {
   const user = await requirePermission("classes.create");
-  const name = String(formData.get("name") ?? "").trim();
+  const details = classDetailsFromForm(formData);
+  if (!details.ok) return fail(details.error);
+  const { name, category } = details;
   const classTeacherId = String(formData.get("classTeacherId") ?? "");
   const status = (String(formData.get("status") ?? "ACTIVE") as ClassStatus) || "ACTIVE";
   const subjectNames = subjectNamesFromForm(formData);
-
-  if (!name) return fail("Class or grade name is required");
 
   const [programId, academicYearId, subjectIds] = await Promise.all([
     ensureLocalSystemProgram(user.id),
@@ -247,6 +262,7 @@ export async function createClass(formData: FormData) {
       id: newId(),
       code: await nextClassCode(),
       name,
+      category,
       programId,
       academicYearId,
       classTeacherId: classTeacherId || null,
@@ -268,7 +284,7 @@ export async function createClass(formData: FormData) {
     action: "CLASS_CREATED",
     entityType: "Class",
     entityId: schoolClass.data.id,
-    details: { name, subjects: subjectNames },
+    details: { name, category, subjects: subjectNames },
   });
 
   revalidatePath("/classes");
@@ -284,18 +300,19 @@ export async function updateClass(formData: FormData) {
   if (existing.error) throw existing.error;
   if (!existing.data) return fail("Class not found");
 
-  const name = String(formData.get("name") ?? "").trim();
+  const details = classDetailsFromForm(formData);
+  if (!details.ok) return fail(details.error);
+  const { name, category } = details;
   const classTeacherId = String(formData.get("classTeacherId") ?? "");
   const status = String(formData.get("status") ?? "ACTIVE") as ClassStatus;
   const subjectNames = subjectNamesFromForm(formData);
-  if (!name) return fail("Class or grade name is required");
-
   const subjectIds = await resolveSubjectIds(subjectNames, user.id);
 
   const updated = await db()
     .from("Class")
     .update({
       name,
+      category,
       classTeacherId: classTeacherId || null,
       status,
       updatedAt: nowIso(),
@@ -311,7 +328,7 @@ export async function updateClass(formData: FormData) {
     action: "CLASS_EDITED",
     entityType: "Class",
     entityId: id,
-    details: { name, subjects: subjectNames },
+    details: { name, category, subjects: subjectNames },
   });
 
   revalidatePath("/classes");

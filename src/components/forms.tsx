@@ -174,7 +174,7 @@ function useSubmit() {
   return { error, pending, submit, setError };
 }
 
-type ClassOption = { id: string; name: string; program: string; feeAmount: number };
+type ClassOption = { id: string; name: string; category?: string | null; program: string; feeAmount: number };
 type SubjectOption = { id: string; name: string };
 type StudentOption = {
   id: string;
@@ -191,6 +191,10 @@ function studentSearchText(student: StudentOption) {
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+}
+
+function classOptionLabel(item: ClassOption) {
+  return `${item.name}${item.category ? ` — ${item.category}` : ""} — ${item.program}`;
 }
 
 function StudentSearchField({
@@ -365,7 +369,7 @@ export function StudentForm({
             <option value="">Select class</option>
             {classes.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.name} — {item.program}
+                {classOptionLabel(item)}
               </option>
             ))}
           </Select>
@@ -500,7 +504,7 @@ export function StaffForm({
             name="classIds"
             defaultValue={initial?.classIds ?? []}
             empty="Create classes first, then assign them here."
-            options={classes.map((item) => ({ id: item.id, label: `${item.name} — ${item.program}` }))}
+            options={classes.map((item) => ({ id: item.id, label: classOptionLabel(item) }))}
           />
         </Field>
         <Field label="Assigned subjects" className="sm:col-span-2">
@@ -565,6 +569,9 @@ function CustomSubjectsFields({ initialNames }: { initialNames?: string[] }) {
   );
 }
 
+const GRADE_OPTIONS = Array.from({ length: 12 }, (_, index) => `Grade ${index + 1}`);
+const CLASS_CATEGORY_OPTIONS = ["Arts", "Science", "ICS"] as const;
+
 export function ClassForm({
   open,
   onClose,
@@ -577,25 +584,79 @@ export function ClassForm({
   initial?: {
     id: string;
     name: string;
+    category?: string | null;
     classTeacherId?: string | null;
     status: string;
     subjectNames: string[];
   };
 }) {
   const { error, pending, submit } = useSubmit();
+  const initialGrade = initial
+    ? GRADE_OPTIONS.includes(initial.name) ? initial.name : "OTHER"
+    : "";
+  const initialCategory = initial?.category
+    ? CLASS_CATEGORY_OPTIONS.includes(initial.category as (typeof CLASS_CATEGORY_OPTIONS)[number])
+      ? initial.category
+      : "OTHER"
+    : "";
+  const [grade, setGrade] = useState(initialGrade);
+  const [category, setCategory] = useState(initialCategory);
+
+  function closeForm() {
+    setGrade(initialGrade);
+    setCategory(initialCategory);
+    onClose();
+  }
+
   return (
-    <Modal open={open} onClose={onClose} title={initial ? "Edit class" : "Create class"}>
+    <Modal open={open} onClose={closeForm} title={initial ? "Edit class" : "Create class"}>
       <form
         className="grid gap-4 sm:grid-cols-2"
         onSubmit={async (event) => {
           event.preventDefault();
-          await submit(initial ? updateClass : createClass, new FormData(event.currentTarget), initial ? "Class updated" : "Class created", onClose);
+          await submit(initial ? updateClass : createClass, new FormData(event.currentTarget), initial ? "Class updated" : "Class created", closeForm);
         }}
       >
         {initial ? <input type="hidden" name="id" value={initial.id} /> : null}
-        <Field label="Class or Grade name" className="sm:col-span-2">
-          <Input name="name" defaultValue={initial?.name} placeholder="Grade 10" required />
+        <Field label="Class / Grade" className="sm:col-span-2">
+          <Select name="grade" value={grade} onChange={(event) => setGrade(event.target.value)} required>
+            <option value="">Select class or grade</option>
+            {GRADE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+            <option value="OTHER">Other class / grade</option>
+          </Select>
         </Field>
+        {grade === "OTHER" ? (
+          <Field label="Custom class / grade" className="sm:col-span-2">
+            <Input name="customGrade" defaultValue={initial?.name} placeholder="e.g. Kindergarten" required />
+          </Field>
+        ) : null}
+        {grade ? (
+          <>
+            <Field label="Class Category" className="sm:col-span-2">
+              <Select name="classCategory" value={category} onChange={(event) => setCategory(event.target.value)} required>
+                <option value="">Select class category</option>
+                {CLASS_CATEGORY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                <option value="OTHER">Others</option>
+              </Select>
+            </Field>
+            {category === "OTHER" ? (
+              <Field label="Custom class category" className="sm:col-span-2">
+                <Input
+                  name="customClassCategory"
+                  defaultValue={
+                    initial?.category && !CLASS_CATEGORY_OPTIONS.includes(
+                      initial.category as (typeof CLASS_CATEGORY_OPTIONS)[number],
+                    )
+                      ? initial.category
+                      : ""
+                  }
+                  placeholder="Enter class category"
+                  required
+                />
+              </Field>
+            ) : null}
+          </>
+        ) : null}
         <Field label="Class teacher">
           <Select name="classTeacherId" defaultValue={initial?.classTeacherId ?? ""}>
             <option value="">Unassigned</option>
@@ -614,7 +675,7 @@ export function ClassForm({
         <div className="sm:col-span-2 space-y-3">
           <ErrorText>{error}</ErrorText>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={closeForm}>Cancel</Button>
             <Button type="submit" disabled={pending}>{pending ? "Saving..." : "Save class"}</Button>
           </div>
         </div>
@@ -748,7 +809,7 @@ export function IncomeForm({
           <Select name="classId" value={classId} onChange={(event) => setClassId(event.target.value)}>
             <option value="">Optional</option>
             {classes.map((item) => (
-              <option key={item.id} value={item.id}>{item.name} — {item.program}</option>
+              <option key={item.id} value={item.id}>{classOptionLabel(item)}</option>
             ))}
           </Select>
         </Field>
@@ -1028,6 +1089,7 @@ export function EditClassButton({
   initial: {
     id: string;
     name: string;
+    category?: string | null;
     classTeacherId?: string | null;
     status: string;
     subjectNames: string[];

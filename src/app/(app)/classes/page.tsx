@@ -81,6 +81,7 @@ export default async function ClassesPage() {
                       initial={{
                         id: schoolClass.id,
                         name: schoolClass.name,
+                        category: schoolClass.category,
                         classTeacherId: schoolClass.classTeacherId,
                         status: schoolClass.status,
                         subjectNames: schoolClass.subjects.map((row) => row.subject.name),
@@ -96,6 +97,10 @@ export default async function ClassesPage() {
                 <div>
                   <dt className="text-slate-500">Students</dt>
                   <dd className="font-semibold">{schoolClass._count.students}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Category</dt>
+                  <dd className="font-semibold">{schoolClass.category || "—"}</dd>
                 </div>
                 <div className="col-span-2">
                   <dt className="text-slate-500">Class teacher</dt>

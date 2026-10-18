@@ -75,14 +75,14 @@ export function ShellChrome({
     <>
       {open ? (
         <button
-          className="fixed inset-0 z-30 bg-navy/40 lg:hidden"
+          className="no-print fixed inset-0 z-30 bg-navy/40 lg:hidden"
           onClick={() => setOpen(false)}
           aria-label="Close menu"
         />
       ) : null}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-72 flex-col bg-navy text-white transition-transform lg:translate-x-0",
+          "no-print fixed inset-y-0 left-0 z-40 flex w-72 flex-col bg-navy text-white transition-transform lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
@@ -127,7 +127,7 @@ export function ShellChrome({
           </form>
         </div>
       </aside>
-      <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur lg:ml-72">
+      <header className="no-print sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur lg:ml-72">
         <button className="rounded-xl p-2 hover:bg-slate-100 lg:hidden" onClick={() => setOpen(true)} aria-label="Open menu">
           <Menu className="h-5 w-5" />
         </button>

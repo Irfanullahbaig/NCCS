@@ -91,11 +91,204 @@ textarea {
   background: #f8fbfc;
 }
 
+.report-preview-shell {
+  max-height: calc(100dvh - 7rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.report-screen-preview {
+  max-width: 100%;
+  max-height: 70dvh;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.print-report-page .table-wrap,
+.report-screen-preview .table-wrap {
+  max-width: 100%;
+  border: 1px solid #94a3b8;
+  background: white;
+}
+
+.print-report-page table,
+.report-screen-preview table {
+  min-width: 45rem;
+  border-collapse: collapse;
+  color: #0f172a;
+}
+
+.print-report-page th,
+.print-report-page td,
+.report-screen-preview th,
+.report-screen-preview td {
+  border: 1px solid #94a3b8;
+  padding: 0.5rem 0.625rem;
+  line-height: 1.35;
+}
+
+.print-report-page th,
+.report-screen-preview th {
+  background: #e2e8f0;
+  color: #0f172a;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+}
+
+.print-report-page tbody tr:nth-child(even),
+.report-screen-preview tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+.print-report-page .report-table--progress,
+.report-screen-preview .report-table--progress {
+  min-width: max(100%, 68rem);
+}
+
+.print-report-page .report-cell--number {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.print-report-page .report-cell--center {
+  text-align: center;
+}
+
+.print-report-page .report-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid #e2e8f0;
+  background: rgba(255, 255, 255, 0.96);
+  padding-block: 0.75rem;
+  backdrop-filter: blur(8px);
+}
+
+@page {
+  size: A4 landscape;
+  margin: 10mm;
+}
+
 @media print {
   .no-print {
     display: none !important;
   }
+
+  html,
   body {
-    background: white;
+    min-width: 0 !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .report-preview-shell,
+  .report-screen-preview,
+  .print-report-page .table-wrap,
+  .report-screen-preview .table-wrap {
+    width: auto !important;
+    max-width: none !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .print-report-page {
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    color: #000;
+    background: #fff;
+  }
+
+  .print-report-page header {
+    break-after: avoid-page;
+  }
+
+  .print-report-page section {
+    break-inside: auto;
+  }
+
+  .print-report-page h2,
+  .print-report-page h3 {
+    break-after: avoid-page;
+  }
+
+  .print-report-page table {
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 8pt;
+  }
+
+  .print-report-page thead {
+    display: table-header-group;
+  }
+
+  .print-report-page tfoot {
+    display: table-footer-group;
+  }
+
+  .print-report-page tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-report-page th,
+  .print-report-page td {
+    height: 7mm;
+    padding: 1.2mm 1.5mm;
+    border: 0.25mm solid #64748b;
+    overflow-wrap: anywhere;
+    vertical-align: middle;
+  }
+
+  .print-report-page th {
+    background: #dbe4ee !important;
+    color: #000 !important;
+    font-size: 7.5pt;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .print-report-page tbody tr:nth-child(even) {
+    background: #f5f7fa !important;
+  }
+
+  .print-report-page .report-table--progress {
+    min-width: 0 !important;
+    font-size: 7pt;
+  }
+
+  .print-report-page .report-table--progress th,
+  .print-report-page .report-table--progress td {
+    height: 8mm;
+    padding: 1mm;
+  }
+
+  .print-report-page .progress-report-section {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .print-report-page .progress-report-section:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .print-report-page .report-signatures {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 }

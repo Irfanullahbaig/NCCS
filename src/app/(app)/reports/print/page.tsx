@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
@@ -38,22 +39,24 @@ export default async function PrintReportPage({
   ].includes(type);
 
   return (
-    <div className="mx-auto max-w-5xl bg-white p-8 print:max-w-none">
-      <PrintToolbar />
-      <header className="mb-6 border-b pb-4">
-        <img src="/nccs-logo-mark.png" alt="NCCS" className="mb-3 h-10 w-auto" />
-        <h1 className="text-2xl font-semibold text-navy">{SCHOOL_FULL_NAME}</h1>
-        <p className="text-sm text-slate-500">
-          Report: {type.replaceAll("-", " ")} · Period: {financial ? period.label : monthLabel(month, year)} · Generated {formatDateTime(new Date())}
-        </p>
-      </header>
-      {type === "student-progress" ? (
-        <ProgressPrint params={params} />
-      ) : financial ? (
-        <FinancialPrint type={type} params={params} />
-      ) : (
-        <DirectoryPrint type={type} />
-      )}
+    <div className="report-preview-shell">
+      <article className="print-report-page mx-auto max-w-5xl bg-white p-8">
+        <PrintToolbar />
+        <header className="mb-6 border-b pb-4">
+          <Image src="/nccs-logo.svg" alt="NCCS" width={160} height={48} className="mb-3 h-12 w-auto" priority />
+          <h1 className="text-2xl font-semibold text-navy">{SCHOOL_FULL_NAME}</h1>
+          <p className="text-sm text-slate-500">
+            Report: {type.replaceAll("-", " ")} · Period: {financial ? period.label : monthLabel(month, year)} · Generated {formatDateTime(new Date())}
+          </p>
+        </header>
+        {type === "student-progress" ? (
+          <ProgressPrint params={params} />
+        ) : financial ? (
+          <FinancialPrint type={type} params={params} />
+        ) : (
+          <DirectoryPrint type={type} />
+        )}
+      </article>
     </div>
   );
 }
@@ -108,22 +111,22 @@ async function FinancialPrint({
               <thead>
                 <tr>
                   <th>Month</th>
-                  <th>Income</th>
-                  <th>Fees</th>
-                  <th>Payroll</th>
-                  <th>Expenses</th>
-                  <th>Net</th>
+                  <th className="report-cell--number">Income</th>
+                  <th className="report-cell--number">Fees</th>
+                  <th className="report-cell--number">Payroll</th>
+                  <th className="report-cell--number">Expenses</th>
+                  <th className="report-cell--number">Net</th>
                 </tr>
               </thead>
               <tbody>
                 {yearly.map((row) => (
                   <tr key={row.month}>
                     <td>{row.label}</td>
-                    <td>{formatPKR(row.income)}</td>
-                    <td>{formatPKR(row.fees)}</td>
-                    <td>{formatPKR(row.payroll)}</td>
-                    <td>{formatPKR(row.expenses)}</td>
-                    <td>{formatPKR(row.net)}</td>
+                    <td className="report-cell--number">{formatPKR(row.income)}</td>
+                    <td className="report-cell--number">{formatPKR(row.fees)}</td>
+                    <td className="report-cell--number">{formatPKR(row.payroll)}</td>
+                    <td className="report-cell--number">{formatPKR(row.expenses)}</td>
+                    <td className="report-cell--number">{formatPKR(row.net)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -143,7 +146,7 @@ async function FinancialPrint({
                   <th>Student</th>
                   <th>Program</th>
                   <th>Fee month</th>
-                  <th>Amount</th>
+                  <th className="report-cell--number">Amount</th>
                   <th>Method</th>
                   <th>Receipt ID</th>
                 </tr>
@@ -155,7 +158,7 @@ async function FinancialPrint({
                     <td>{row.person}</td>
                     <td>{row.program || "—"}</td>
                     <td>{row.monthLabel || "—"}</td>
-                    <td>{formatPKR(row.amount)}</td>
+                    <td className="report-cell--number">{formatPKR(row.amount)}</td>
                     <td>{PAYMENT_METHOD_LABELS[row.method as keyof typeof PAYMENT_METHOD_LABELS] ?? row.method}</td>
                     <td>{row.receiptId}</td>
                   </tr>
@@ -174,10 +177,10 @@ async function FinancialPrint({
               <thead>
                 <tr>
                   <th>Employee</th>
-                  <th>Salary</th>
-                  <th>Advance</th>
-                  <th>Paid</th>
-                  <th>Remaining</th>
+                  <th className="report-cell--number">Salary</th>
+                  <th className="report-cell--number">Advance</th>
+                  <th className="report-cell--number">Paid</th>
+                  <th className="report-cell--number">Remaining</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -189,10 +192,10 @@ async function FinancialPrint({
                   return (
                     <tr key={record.id}>
                       <td>{fullName(record.staff.firstName, record.staff.lastName)} · {record.staff.staffId}</td>
-                      <td>{formatPKR(record.expectedAmount)}</td>
-                      <td>{formatPKR(advance)}</td>
-                      <td>{formatPKR(record.paidAmount)}</td>
-                      <td>{formatPKR(record.remainingAmount)}</td>
+                      <td className="report-cell--number">{formatPKR(record.expectedAmount)}</td>
+                      <td className="report-cell--number">{formatPKR(advance)}</td>
+                      <td className="report-cell--number">{formatPKR(record.paidAmount)}</td>
+                      <td className="report-cell--number">{formatPKR(record.remainingAmount)}</td>
                       <td>{record.status}</td>
                     </tr>
                   );
@@ -213,7 +216,7 @@ async function FinancialPrint({
                   <th>Date</th>
                   <th>Category</th>
                   <th>Payee</th>
-                  <th>Amount</th>
+                  <th className="report-cell--number">Amount</th>
                   <th>Method</th>
                 </tr>
               </thead>
@@ -223,7 +226,7 @@ async function FinancialPrint({
                     <td>{formatDate(row.date)}</td>
                     <td>{row.type.replaceAll("_", " ")}</td>
                     <td>{row.person}</td>
-                    <td>{formatPKR(row.amount)}</td>
+                    <td className="report-cell--number">{formatPKR(row.amount)}</td>
                     <td>{PAYMENT_METHOD_LABELS[row.method as keyof typeof PAYMENT_METHOD_LABELS] ?? row.method}</td>
                   </tr>
                 ))}
@@ -244,7 +247,7 @@ async function FinancialPrint({
                   <th>ID</th>
                   <th>Type</th>
                   <th>Person</th>
-                  <th>Amount</th>
+                  <th className="report-cell--number">Amount</th>
                 </tr>
               </thead>
               <tbody>
@@ -254,7 +257,7 @@ async function FinancialPrint({
                     <td>{row.transactionId}</td>
                     <td>{row.source}</td>
                     <td>{row.person}</td>
-                    <td>{formatPKR(row.signedAmount)}</td>
+                    <td className="report-cell--number">{formatPKR(row.signedAmount)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -325,7 +328,7 @@ async function DirectoryPrint({ type }: { type: string }) {
             <th>Name</th>
             <th>Class</th>
             <th>Type</th>
-            <th>Fee</th>
+            <th className="report-cell--number">Fee</th>
           </tr>
         </thead>
         <tbody>
@@ -334,7 +337,7 @@ async function DirectoryPrint({ type }: { type: string }) {
               <td>{fullName(student.firstName, student.lastName)}</td>
               <td>{student.class.name} {student.class.program.name}</td>
               <td>{student.studentType}</td>
-              <td>{formatPKR(student.feeAmount)}</td>
+              <td className="report-cell--number">{formatPKR(student.feeAmount)}</td>
             </tr>
           ))}
         </tbody>
@@ -354,7 +357,7 @@ async function ProgressPrint({ params }: { params: Record<string, string | undef
   return (
     <div className="space-y-10">
       {data.groups.map((group) => (
-        <section key={group.classId} className="break-after-page">
+        <section key={group.classId} className="progress-report-section">
           <div className="mb-4">
             <h2 className="text-xl font-semibold text-navy">Monthly student progress report</h2>
             <p className="text-sm text-slate-600">
@@ -362,10 +365,10 @@ async function ProgressPrint({ params }: { params: Record<string, string | undef
             </p>
           </div>
           <div className="table-wrap">
-            <table>
+            <table className="report-table--progress">
               <thead>
                 <tr>
-                  <th>Sr</th>
+                  <th className="report-cell--center">Sr</th>
                   <th>Student ID</th>
                   <th>Student</th>
                   <th>Father</th>
@@ -379,21 +382,21 @@ async function ProgressPrint({ params }: { params: Record<string, string | undef
               <tbody>
                 {group.students.map((student) => (
                   <tr key={student.id}>
-                    <td>{student.sr}</td>
+                    <td className="report-cell--center">{student.sr}</td>
                     <td>{student.registrationNo}</td>
                     <td>{student.name}</td>
                     <td>{student.fatherName}</td>
                     {group.subjects.map((subject) => (
                       <td key={subject.id} className="min-w-[4rem]"></td>
                     ))}
-                    <td>{student.feeStatus}</td>
+                    <td className="report-cell--center">{student.feeStatus}</td>
                     <td className="min-w-[8rem]"></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="mt-10 grid grid-cols-2 gap-8 text-sm text-slate-600">
+          <div className="report-signatures mt-10 grid grid-cols-2 gap-8 text-sm text-slate-600">
             <p>Class teacher signature: ______________________</p>
             <p>Principal signature: ______________________</p>
           </div>

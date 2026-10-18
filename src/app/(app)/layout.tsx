@@ -14,8 +14,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="min-h-screen bg-surface">
       <AppShell user={user} schoolName={schoolName} />
-      <div className="lg:pl-72">
-        <main className="px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+      <div className="lg:pl-72 print:pl-0">
+        <main className="px-4 py-6 sm:px-6 lg:px-8 print:p-0">{children}</main>
       </div>
     </div>
   );
