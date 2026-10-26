@@ -64,6 +64,7 @@ export default async function StudentsPage({
   const classOptions = classes.map((item) => ({
     id: item.id,
     name: item.name,
+    category: item.category,
     program: item.program.name,
     feeAmount: item.feeAmount,
   }));

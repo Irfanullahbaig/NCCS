@@ -79,14 +79,14 @@ export function ShellChrome({
     <>
       {open ? (
         <button
-          className="fixed inset-0 z-30 bg-navy/30 backdrop-blur-sm lg:hidden"
+          className="no-print fixed inset-0 z-30 bg-navy/30 backdrop-blur-sm lg:hidden"
           onClick={() => setOpen(false)}
           aria-label="Close menu"
         />
       ) : null}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-72 flex-col bg-white shadow-card transition-transform lg:inset-y-4 lg:left-4 lg:w-64 lg:translate-x-0 lg:rounded-3xl",
+          "no-print fixed inset-y-0 left-0 z-40 flex w-72 flex-col bg-white shadow-card transition-transform lg:inset-y-4 lg:left-4 lg:w-64 lg:translate-x-0 lg:rounded-3xl",
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
@@ -155,7 +155,7 @@ export function ShellChrome({
           </form>
         </div>
       </aside>
-      <header className="sticky top-0 z-20 flex items-center gap-3 bg-[#efebe5]/80 px-4 py-3 backdrop-blur-md sm:px-6 lg:ml-[17rem] lg:px-6">
+      <header className="no-print sticky top-0 z-20 flex items-center gap-3 bg-[#efebe5]/80 px-4 py-3 backdrop-blur-md sm:px-6 lg:ml-[17rem] lg:px-6">
         <button className="rounded-xl bg-white p-2 shadow-card lg:hidden" onClick={() => setOpen(true)} aria-label="Open menu">
           <Menu className="h-5 w-5" />
         </button>

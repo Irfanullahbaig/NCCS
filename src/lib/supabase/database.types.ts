@@ -91,6 +91,7 @@ export type Database = {
       Class: {
         Row: {
           academicYearId: string
+          category: string | null
           classTeacherId: string | null
           code: string
           createdAt: string
@@ -105,6 +106,7 @@ export type Database = {
         }
         Insert: {
           academicYearId: string
+          category?: string | null
           classTeacherId?: string | null
           code: string
           createdAt?: string
@@ -119,6 +121,7 @@ export type Database = {
         }
         Update: {
           academicYearId?: string
+          category?: string | null
           classTeacherId?: string | null
           code?: string
           createdAt?: string

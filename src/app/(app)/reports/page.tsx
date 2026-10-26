@@ -91,7 +91,9 @@ export default async function ReportsPage({
       {type ? (
         <Card title={visibleReports.find((report) => report.type === type)?.title ?? "Report"} className="mt-6">
           {visibleReports.some((report) => report.type === type) ? (
-            <ReportPreview type={type} params={params} />
+            <div className="report-screen-preview">
+              <ReportPreview type={type} params={params} />
+            </div>
           ) : (
             <p className="text-sm text-slate-500">You do not have access to this report.</p>
           )}
@@ -114,7 +116,7 @@ async function ReportPreview({ type, params }: { type: string; params: Record<st
           <div key={group.classId}>
             <h3 className="mb-2 text-sm font-semibold text-navy">{group.className} — {group.programName}</h3>
             <div className="table-wrap">
-              <table>
+              <table className="report-table--progress">
                 <thead>
                   <tr>
                     <th>Sr</th>

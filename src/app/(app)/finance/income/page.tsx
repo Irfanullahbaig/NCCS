@@ -76,6 +76,7 @@ export default async function IncomePage({
               classes={classes.map((item) => ({
                 id: item.id,
                 name: item.name,
+                category: item.category,
                 program: item.program.name,
                 feeAmount: item.feeAmount,
               }))}
