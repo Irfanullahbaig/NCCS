@@ -5,6 +5,8 @@ import { Role } from "@/lib/enums";
 import { hashPassword, requirePermission } from "@/lib/auth";
 import { db, newId, nowIso } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
+import { invalidateLateFeePolicy, recalculateAllFees } from "@/lib/finance";
+import { LATE_FEE_SETTING_KEYS } from "@/lib/late-fee";
 
 function fail(error: string) {
   return { ok: false as const, error };
@@ -128,4 +130,39 @@ export async function saveSettingsAction(formData: FormData) {
 
 export async function saveSettingsForm(formData: FormData): Promise<void> {
   await saveSettingsAction(formData);
+}
+
+export async function saveLateFeeSettingsAction(formData: FormData) {
+  const user = await requirePermission("settings.manage");
+  const startMonth = String(formData.get("lateFeeStartMonth") ?? "").trim();
+  if (!/^\d{4}-\d{2}$/.test(startMonth)) return fail("Choose the first month that can have a late fee");
+  const entries = [
+    [LATE_FEE_SETTING_KEYS.chargeOnPartial, formData.get("lateFeeChargeOnPartial") === "on" ? "true" : "false"],
+    [LATE_FEE_SETTING_KEYS.startMonth, startMonth],
+  ];
+
+  for (const [key, value] of entries) {
+    const existing = await db().from("Setting").select("id").eq("key", key).maybeSingle();
+    if (existing.error) throw existing.error;
+    const saved = existing.data
+      ? await db().from("Setting").update({ value }).eq("key", key)
+      : await db().from("Setting").insert({ id: newId(), key, value });
+    if (saved.error) throw saved.error;
+  }
+
+  invalidateLateFeePolicy();
+  await recalculateAllFees();
+  await writeAudit({
+    userId: user.id,
+    action: "SETTINGS_UPDATED",
+    entityType: "Setting",
+    details: Object.fromEntries(entries),
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/finance/fees");
+  revalidatePath("/finance/outstanding");
+  revalidatePath("/students");
+  revalidatePath("/");
+  return { ok: true as const };
 }

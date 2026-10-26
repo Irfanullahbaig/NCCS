@@ -17,6 +17,7 @@ export type Permission =
   | "fees.view"
   | "fees.record"
   | "fees.void"
+  | "fees.waive"
   | "finance.view"
   | "finance.create"
   | "finance.void"
@@ -47,6 +48,7 @@ const ALL: Permission[] = [
   "fees.view",
   "fees.record",
   "fees.void",
+  "fees.waive",
   "finance.view",
   "finance.create",
   "finance.void",
@@ -73,6 +75,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "staff.edit",
     "classes.view",
     "fees.view",
+    "fees.waive",
     "finance.view",
     "finance.analytics",
     "reports.view",

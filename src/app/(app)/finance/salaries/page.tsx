@@ -59,7 +59,7 @@ export default async function SalariesPage({
           </>
         ) : <ViewOnlyBadge />}
       />
-      <form className="mb-4 grid gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:grid-cols-4">
+      <form className="mb-4 grid gap-3 rounded-3xl bg-white p-4 shadow-card md:grid-cols-4">
         <Select name="month" defaultValue={String(month)}>
           {MONTH_NAMES.map((label, index) => (
             <option key={label} value={index + 1}>{label}</option>
@@ -74,7 +74,7 @@ export default async function SalariesPage({
         <StatCard label="Paid" value={formatPKR(paid)} hint={`Includes ${formatPKR(advances)} advances`} icon={<Banknote className="h-5 w-5" />} tone="teal" />
         <StatCard label="Remaining" value={formatPKR(outstanding)} hint="Still to pay" icon={<AlertCircle className="h-5 w-5" />} tone="rose" />
       </div>
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-3xl bg-white shadow-card">
         {records.length ? (
           <div className="table-wrap">
             <table>
@@ -119,7 +119,7 @@ export default async function SalariesPage({
         )}
       </div>
       {records.some((record) => record.payments.length) ? (
-        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+        <div className="mt-6 overflow-hidden rounded-3xl bg-white shadow-card">
           <div className="border-b border-slate-100 px-5 py-4">
             <h2 className="text-sm font-semibold text-navy">This period’s payments</h2>
           </div>

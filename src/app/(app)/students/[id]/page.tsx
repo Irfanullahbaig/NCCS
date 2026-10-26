@@ -8,6 +8,7 @@ import { formatDate, formatPKR, fullName, monthLabel, toDateInput } from "@/lib/
 import { Card, PageHeader, Select } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
 import { EditStudentButton, RecordPaymentButton } from "@/components/forms";
+import { LateFeeCell } from "@/components/late-fee";
 import { PAYMENT_METHOD_LABELS } from "@/lib/constants";
 
 export default async function StudentProfilePage({
@@ -47,6 +48,7 @@ export default async function StudentProfilePage({
           <>
             {can(user.role, "students.edit") ? (
               <EditStudentButton
+                autoOpenOn="edit"
                 classes={classOptions}
                 initial={{
                   id: student.id,
@@ -68,6 +70,7 @@ export default async function StudentProfilePage({
             ) : null}
             {can(user.role, "fees.record") && currentFee?.status !== "WAIVED" ? (
               <RecordPaymentButton
+                autoOpenOn="pay"
                 students={[{ id: student.id, name: fullName(student.firstName, student.lastName), classId: student.classId, remaining: currentFee?.remainingAmount }]}
                 presetStudentId={student.id}
               />
@@ -93,7 +96,7 @@ export default async function StudentProfilePage({
             Open class dashboard
           </Link>
         </Card>
-        <div className="grid gap-4 lg:col-span-2">
+        <div className="grid min-w-0 gap-4 lg:col-span-2">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Mini label={`${monthLabel(month, year)} paid`} value={formatPKR(currentFee?.paidAmount ?? 0)} />
             <Mini label="Late fine" value={formatPKR(currentFee?.fineAmount ?? 0)} />
@@ -135,7 +138,16 @@ export default async function StudentProfilePage({
                           <td>{monthLabel(record.month, record.year).split(" ")[0]}</td>
                           <td>{record.year}</td>
                           <td>{formatPKR(record.expectedAmount)}</td>
-                          <td>{(record.fineAmount ?? 0) > 0 ? formatPKR(record.fineAmount) : "—"}</td>
+                          <td>
+                            <LateFeeCell
+                              feeRecordId={record.id}
+                              fine={record.fineAmount ?? 0}
+                              fineWaived={record.fineWaived}
+                              reason={record.fineWaiveReason}
+                              label={monthLabel(record.month, record.year)}
+                              canWaive={can(user.role, "fees.waive")}
+                            />
+                          </td>
                           <td>{formatPKR(record.paidAmount)}</td>
                           <td>{formatPKR(record.remainingAmount)}</td>
                           <td><FeeBadge status={record.status} /></td>
@@ -201,7 +213,7 @@ function Info({ label, value }: { label: string; value: React.ReactNode }) {
 
 function Mini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+    <div className="rounded-3xl bg-white p-4 shadow-card">
       <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
       <p className="mt-1 text-xl font-semibold text-navy">{value}</p>
     </div>

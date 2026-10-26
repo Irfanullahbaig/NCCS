@@ -57,9 +57,9 @@ export default async function StaffPage({
       <PageHeader
         title="Staff / Teachers"
         subtitle="HR records, qualifications, and class/subject assignments."
-        actions={can(user.role, "staff.create") ? <AddStaffButton subjects={subjectOptions} classes={classOptions} /> : null}
+        actions={can(user.role, "staff.create") ? <AddStaffButton subjects={subjectOptions} classes={classOptions} autoOpenOn="new" /> : null}
       />
-      <form className="mb-4 grid gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:grid-cols-6">
+      <form className="mb-4 grid gap-3 rounded-3xl bg-white p-4 shadow-card md:grid-cols-6">
         <Input name="q" defaultValue={params.q} placeholder="Name, staff ID, subject..." className="md:col-span-2" />
         <Select name="gender" defaultValue={params.gender ?? ""}>
           <option value="">All genders</option>
@@ -82,7 +82,7 @@ export default async function StaffPage({
         <Input type="date" name="joinedFrom" defaultValue={params.joinedFrom} />
         <button className="h-10 rounded-xl bg-navy text-sm font-medium text-white">Apply filters</button>
       </form>
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-3xl bg-white shadow-card">
         {staff.length ? (
           <div className="table-wrap">
             <table>

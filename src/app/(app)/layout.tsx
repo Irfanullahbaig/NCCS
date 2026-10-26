@@ -12,10 +12,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     void import("@/lib/backup").then(({ ensureWeeklyBackup }) => ensureWeeklyBackup()).catch(() => undefined);
   }
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="min-h-screen">
       <AppShell user={user} schoolName={schoolName} />
-      <div className="lg:pl-72">
-        <main className="px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+      <div className="lg:pl-[17rem]">
+        <main className="mx-auto max-w-[1440px] px-4 pb-12 pt-4 sm:px-6 lg:pt-6">{children}</main>
       </div>
     </div>
   );

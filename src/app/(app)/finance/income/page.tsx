@@ -64,6 +64,7 @@ export default async function IncomePage({
         actions={
           can(user.role, "finance.create") ? (
             <AddIncomeButton
+              autoOpenOn="new"
               students={students.map((student) => ({
                 id: student.id,
                 name: `${fullName(student.firstName, student.lastName)}`,
@@ -84,7 +85,7 @@ export default async function IncomePage({
           )
         }
       />
-      <form className="mb-4 grid gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:grid-cols-6">
+      <form className="mb-4 grid gap-3 rounded-3xl bg-white p-4 shadow-card md:grid-cols-6">
         <Input name="q" defaultValue={params.q} placeholder="Transaction ID, student, source..." className="md:col-span-2" />
         <Input type="date" name="from" defaultValue={params.from} />
         <Input type="date" name="to" defaultValue={params.to} />
@@ -102,7 +103,7 @@ export default async function IncomePage({
         </Select>
         <button className="h-10 rounded-xl bg-navy text-sm font-medium text-white">Filter</button>
       </form>
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-3xl bg-white shadow-card">
         {rows.length ? (
           <div className="table-wrap">
             <table>

@@ -66,7 +66,7 @@ export default async function ClassesPage() {
       {classes.length ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {classes.map((schoolClass) => (
-            <div key={schoolClass.id} className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div key={schoolClass.id} className="rounded-3xl bg-white p-5 shadow-card">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <Link href={`/classes/${schoolClass.id}`} className="text-lg font-semibold text-navy">

@@ -8,6 +8,7 @@ import { currentMonthYear, formatDate, formatPKR, fullName, monthLabel, MONTH_NA
 import { PageHeader, EmptyState, ViewOnlyBadge, StatCard, Select, Input } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
 import { RecordPaymentButton } from "@/components/forms";
+import { LateFeeCell } from "@/components/late-fee";
 import { PAYMENT_METHOD_LABELS } from "@/lib/constants";
 
 export default async function FeesPage({
@@ -36,7 +37,9 @@ export default async function FeesPage({
   }));
 
   const students = records
-    .filter((record) => record.status !== "WAIVED" && record.remainingAmount > 0)
+    // Paid students stay in the list so an older or later month can still be paid.
+    .filter((record) => record.status !== "WAIVED")
+    .sort((a, b) => b.remainingAmount - a.remainingAmount)
     .map((record) => ({
       id: record.student.id,
       name: fullName(record.student.firstName, record.student.lastName),
@@ -66,9 +69,9 @@ export default async function FeesPage({
       <PageHeader
         title="Student fees"
         subtitle={`Fee month ${monthLabel(month, year)}. Unpaid fees after the 10th add a Rs. 200 late fine.`}
-        actions={can(user.role, "fees.record") ? <RecordPaymentButton students={students} /> : <ViewOnlyBadge />}
+        actions={can(user.role, "fees.record") ? <RecordPaymentButton students={students} autoOpenOn="pay" /> : <ViewOnlyBadge />}
       />
-      <form className="mb-4 grid gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:grid-cols-4">
+      <form className="mb-4 grid gap-3 rounded-3xl bg-white p-4 shadow-card md:grid-cols-4">
         <Select name="month" defaultValue={String(month)}>
           {MONTH_NAMES.map((label, index) => (
             <option key={label} value={index + 1}>{label}</option>
@@ -88,7 +91,7 @@ export default async function FeesPage({
         <StatCard label="Partially paid" value={statusCounts.partial} hint="Students" icon={<Split className="h-5 w-5" />} tone="gold" />
         <StatCard label="Pending / overdue" value={statusCounts.pending + statusCounts.overdue} hint={`${statusCounts.overdue} overdue`} icon={<Clock className="h-5 w-5" />} tone="rose" />
       </div>
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-3xl bg-white shadow-card">
         {records.length ? (
           <div className="table-wrap">
             <table>
@@ -120,7 +123,16 @@ export default async function FeesPage({
                       <td>{record.student.class.name} — {record.student.class.program.name}</td>
                       <td><TypeBadge type={record.student.studentType} /></td>
                       <td>{formatPKR(record.expectedAmount)}</td>
-                      <td>{(record.fineAmount ?? 0) > 0 ? formatPKR(record.fineAmount) : "—"}</td>
+                      <td>
+                        <LateFeeCell
+                          feeRecordId={record.id}
+                          fine={record.fineAmount ?? 0}
+                          fineWaived={record.fineWaived}
+                          reason={record.fineWaiveReason}
+                          label={`${fullName(record.student.firstName, record.student.lastName)}, ${monthLabel(record.month, record.year)}`}
+                          canWaive={can(user.role, "fees.waive")}
+                        />
+                      </td>
                       <td>{formatPKR(record.paidAmount)}</td>
                       <td>{formatPKR(record.remainingAmount)}</td>
                       <td>{last ? `${formatDate(last.paymentDate)} · ${PAYMENT_METHOD_LABELS[last.paymentMethod]}` : "—"}</td>

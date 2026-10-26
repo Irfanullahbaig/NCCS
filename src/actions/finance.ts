@@ -8,6 +8,7 @@ import {
   recordExpense,
   recordIncome,
   recordStudentPayment,
+  setLateFeeWaiver,
   voidExpense,
   voidIncome,
 } from "@/lib/finance";
@@ -46,9 +47,11 @@ export async function recordPaymentAction(formData: FormData) {
     if (!studentId || !paymentDate || !paymentMethod) return fail("Student, date, and payment method are required");
     if (!year || !months.length) return fail("Select the fee year and at least one month");
 
+    let recorded = 0;
     for (const month of months) {
       const monthAmount = Number(formData.get(`amount_${month}`) || amount);
       if (!monthAmount) continue;
+      recorded += 1;
       await recordStudentPayment({
         studentId,
         amount: monthAmount,
@@ -62,6 +65,7 @@ export async function recordPaymentAction(formData: FormData) {
         userId: user.id,
       });
     }
+    if (!recorded) return fail("Enter an amount for at least one month");
     refreshFinance();
     revalidatePath(`/students/${studentId}`);
     return { ok: true as const };
@@ -185,5 +189,38 @@ export async function voidExpenseAction(formData: FormData) {
     return { ok: true as const };
   } catch (error) {
     return fail(error instanceof Error ? error.message : "Unable to void expense");
+  }
+}
+
+export async function waiveLateFeeAction(formData: FormData) {
+  const user = await requirePermission("fees.waive");
+  try {
+    const record = await setLateFeeWaiver({
+      feeRecordId: String(formData.get("feeRecordId") ?? ""),
+      waive: true,
+      reason: String(formData.get("reason") ?? ""),
+      userId: user.id,
+    });
+    refreshFinance();
+    revalidatePath(`/students/${record.studentId}`);
+    return { ok: true as const };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "Unable to waive the late fee");
+  }
+}
+
+export async function restoreLateFeeAction(formData: FormData) {
+  const user = await requirePermission("fees.waive");
+  try {
+    const record = await setLateFeeWaiver({
+      feeRecordId: String(formData.get("feeRecordId") ?? ""),
+      waive: false,
+      userId: user.id,
+    });
+    refreshFinance();
+    revalidatePath(`/students/${record.studentId}`);
+    return { ok: true as const };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "Unable to restore the late fee");
   }
 }

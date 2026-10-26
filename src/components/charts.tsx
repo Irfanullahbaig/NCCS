@@ -30,12 +30,12 @@ function compactAxis(value: number) {
   return String(amount);
 }
 
-const tick = { fontSize: 11, fill: "#94a3b8" };
+const tick = { fontSize: 11, fill: "#a8a29e" };
 const chartMargin = { top: 8, right: 8, left: 4, bottom: 4 };
 
 const tooltipStyle = {
   borderRadius: 12,
-  border: "1px solid #e6ebf2",
+  border: "1px solid #ece6df",
   fontSize: 12,
   boxShadow: "none",
 };
@@ -88,7 +88,7 @@ export function FinanceCharts({
   const showExtra = !compact && data.some((row) => row.payroll != null || row.net != null);
 
   if (!ready) {
-    return <div className={`grid gap-8 ${compact ? "xl:grid-cols-2" : "xl:grid-cols-2"}`}>{[1, 2].map((key) => <div key={key} className="h-48 rounded-xl bg-slate-50" />)}</div>;
+    return <div className={`grid gap-8 ${compact ? "xl:grid-cols-2" : "xl:grid-cols-2"}`}>{[1, 2].map((key) => <div key={key} className="h-48 rounded-2xl bg-slate-50" />)}</div>;
   }
 
   return (
@@ -96,18 +96,18 @@ export function FinanceCharts({
       <ChartPanel
         title="Income vs expenses"
         legend={[
-          { color: "#0f766e", label: "Income" },
-          { color: "#e11d48", label: "Expenses" },
+          { color: "#0E7C4A", label: "Income" },
+          { color: "#F2914F", label: "Expenses" },
         ]}
       >
         <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data} barGap={2} margin={chartMargin}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1ece6" vertical={false} />
             <XAxis dataKey="label" tick={tick} axisLine={false} tickLine={false} />
             <YAxis tick={tick} axisLine={false} tickLine={false} width={40} tickFormatter={compactAxis} />
             <Tooltip formatter={(value) => formatPKR(Number(value))} contentStyle={tooltipStyle} />
-            <Bar dataKey="income" fill="#0f766e" name="Income" radius={[4, 4, 0, 0]} maxBarSize={18} />
-            <Bar dataKey="expenses" fill="#e11d48" name="Expenses" radius={[4, 4, 0, 0]} maxBarSize={18} />
+            <Bar dataKey="income" fill="#0E7C4A" name="Income" radius={[4, 4, 0, 0]} maxBarSize={18} />
+            <Bar dataKey="expenses" fill="#F2914F" name="Expenses" radius={[4, 4, 0, 0]} maxBarSize={18} />
           </BarChart>
         </ResponsiveContainer>
       </ChartPanel>
@@ -115,25 +115,25 @@ export function FinanceCharts({
         title={compact ? "Net profit / loss" : "Fee collection"}
         legend={
           compact
-            ? [{ color: "#1a3b66", label: "Net" }]
+            ? [{ color: "#3B6FC0", label: "Net" }]
             : [
-                { color: "#1a3b66", label: "Student fees" },
-                { color: "#14b8a6", label: "Total income" },
+                { color: "#3B6FC0", label: "Student fees" },
+                { color: "#0E7C4A", label: "Total income" },
               ]
         }
       >
         <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data} margin={chartMargin}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1ece6" vertical={false} />
             <XAxis dataKey="label" tick={tick} axisLine={false} tickLine={false} />
             <YAxis tick={tick} axisLine={false} tickLine={false} width={40} tickFormatter={compactAxis} />
             <Tooltip formatter={(value) => formatPKR(Number(value))} contentStyle={tooltipStyle} />
             {compact ? (
-              <Line type="monotone" dataKey="net" stroke="#1a3b66" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="net" stroke="#3B6FC0" strokeWidth={2} dot={false} />
             ) : (
               <>
-                <Line type="monotone" dataKey="fees" stroke="#1a3b66" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="income" stroke="#14b8a6" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="fees" stroke="#3B6FC0" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="income" stroke="#0E7C4A" strokeWidth={2} dot={false} />
               </>
             )}
           </LineChart>
@@ -144,29 +144,29 @@ export function FinanceCharts({
           <ChartPanel
             title="Payroll & outstanding"
             legend={[
-              { color: "#1a3b66", label: "Payroll" },
-              { color: "#d97706", label: "Outstanding" },
+              { color: "#3B6FC0", label: "Payroll" },
+              { color: "#F2914F", label: "Outstanding" },
             ]}
           >
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={data} barGap={2} margin={chartMargin}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1ece6" vertical={false} />
                 <XAxis dataKey="label" tick={tick} axisLine={false} tickLine={false} />
                 <YAxis tick={tick} axisLine={false} tickLine={false} width={40} tickFormatter={compactAxis} />
                 <Tooltip formatter={(value) => formatPKR(Number(value))} contentStyle={tooltipStyle} />
-                <Bar dataKey="payroll" fill="#1a3b66" radius={[4, 4, 0, 0]} maxBarSize={18} />
-                <Bar dataKey="outstanding" fill="#d97706" radius={[4, 4, 0, 0]} maxBarSize={18} />
+                <Bar dataKey="payroll" fill="#3B6FC0" radius={[4, 4, 0, 0]} maxBarSize={18} />
+                <Bar dataKey="outstanding" fill="#F2914F" radius={[4, 4, 0, 0]} maxBarSize={18} />
               </BarChart>
             </ResponsiveContainer>
           </ChartPanel>
-          <ChartPanel title="Net profit / loss" legend={[{ color: "#0f766e", label: "Net" }]}>
+          <ChartPanel title="Net profit / loss" legend={[{ color: "#0E7C4A", label: "Net" }]}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={data} margin={chartMargin}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1ece6" vertical={false} />
                 <XAxis dataKey="label" tick={tick} axisLine={false} tickLine={false} />
                 <YAxis tick={tick} axisLine={false} tickLine={false} width={40} tickFormatter={compactAxis} />
                 <Tooltip formatter={(value) => formatPKR(Number(value))} contentStyle={tooltipStyle} />
-                <Line type="monotone" dataKey="net" stroke="#0f766e" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="net" stroke="#0E7C4A" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </ChartPanel>

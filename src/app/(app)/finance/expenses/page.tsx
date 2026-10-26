@@ -33,9 +33,9 @@ export default async function ExpensesPage({
       <PageHeader
         title="Expenses"
         subtitle="Record salaries, utilities, rent, and other operating costs."
-        actions={can(user.role, "finance.create") ? <AddExpenseButton /> : <ViewOnlyBadge />}
+        actions={can(user.role, "finance.create") ? <AddExpenseButton autoOpenOn="new" /> : <ViewOnlyBadge />}
       />
-      <form className="mb-4 grid gap-3 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:grid-cols-4">
+      <form className="mb-4 grid gap-3 rounded-3xl bg-white p-4 shadow-card md:grid-cols-4">
         <Input name="q" defaultValue={params.q} placeholder="Expense ID, paid to, reference..." />
         <Select name="category" defaultValue={params.category ?? ""}>
           <option value="">All categories</option>
@@ -51,7 +51,7 @@ export default async function ExpensesPage({
         </Select>
         <button className="h-10 rounded-xl bg-navy text-sm font-medium text-white">Filter</button>
       </form>
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-3xl bg-white shadow-card">
         {rows.length ? (
           <div className="table-wrap">
             <table>

@@ -1,19 +1,30 @@
 @import "tailwindcss";
 
+/*
+ * Design language: warm cream surfaces, white rounded cards with soft shadows,
+ * a deep green brand colour and a warm orange accent.
+ * "navy" and "teal" keep their names so existing classes pick up the new look:
+ * navy is now the near-black ink, teal is the brand green.
+ */
 :root {
-  --navy: #0b1f3a;
-  --navy-800: #122c4f;
-  --navy-700: #1a3b66;
-  --teal: #0f766e;
-  --teal-500: #14b8a6;
-  --gold: #c9a227;
-  --surface: #f3f6fb;
+  --navy: #1f2622;
+  --navy-800: #2c3530;
+  --navy-700: #3d4842;
+  --teal: #2e7d5b;
+  --teal-500: #3a9a6f;
+  --gold: #e07b45;
+  --peach: #fde9dd;
+  --peach-100: #fbd9c5;
+  --orange: #d9703a;
+  --sage: #e4f1e9;
+  --surface: #f7f4f0;
   --card: #ffffff;
-  --line: #e6ebf2;
-  --text: #122033;
-  --muted: #5b6b7c;
+  --line: #ece6df;
+  --text: #1f2622;
+  --muted: #78716c;
   --background: var(--surface);
   --foreground: var(--text);
+  --shadow-card: 0 1px 2px rgba(41, 37, 36, 0.04), 0 12px 32px -18px rgba(41, 37, 36, 0.18);
 }
 
 @theme inline {
@@ -25,11 +36,28 @@
   --color-teal: var(--teal);
   --color-teal-500: var(--teal-500);
   --color-gold: var(--gold);
+  --color-peach: var(--peach);
+  --color-peach-100: var(--peach-100);
+  --color-orange: var(--orange);
+  --color-sage: var(--sage);
   --color-surface: var(--surface);
   --color-line: var(--line);
   --color-muted: var(--muted);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-jakarta);
   --font-mono: var(--font-geist-mono);
+  --shadow-card: var(--shadow-card);
+
+  /* Warm greys everywhere slate was used, to match the cream palette. */
+  --color-slate-50: #faf8f6;
+  --color-slate-100: #f4f1ed;
+  --color-slate-200: #e8e3dd;
+  --color-slate-300: #d6d0c9;
+  --color-slate-400: #a8a29e;
+  --color-slate-500: #78716c;
+  --color-slate-600: #57534e;
+  --color-slate-700: #44403c;
+  --color-slate-800: #292524;
+  --color-slate-900: #1c1917;
 }
 
 * {
@@ -38,18 +66,22 @@
 
 html,
 body {
-  background: var(--surface);
   color: var(--text);
   min-height: 100%;
 }
 
 body {
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-jakarta), system-ui, sans-serif;
+  background:
+    radial-gradient(1200px 600px at 0% 0%, #f3e6db 0%, transparent 60%),
+    radial-gradient(1000px 700px at 100% 100%, #cfe3d6 0%, transparent 60%),
+    #efebe5;
+  background-attachment: fixed;
 }
 
 ::selection {
-  background: #ccfbf1;
-  color: #134e4a;
+  background: var(--peach-100);
+  color: #7c3a16;
 }
 
 input,
@@ -64,31 +96,55 @@ textarea {
 
 .table-wrap table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.875rem;
 }
 
 .table-wrap th {
   text-align: left;
-  font-size: 0.72rem;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #64748b;
-  padding: 0.75rem 1rem;
-  background: #f8fafc;
-  border-bottom: 1px solid var(--line);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #57534e;
+  padding: 0.8rem 1rem;
+  background: #f7f4f0;
   white-space: nowrap;
 }
 
-.table-wrap td {
-  padding: 0.85rem 1rem;
-  border-bottom: 1px solid #eef2f6;
-  vertical-align: middle;
+.table-wrap th:first-child {
+  border-top-left-radius: 0.875rem;
+  border-bottom-left-radius: 0.875rem;
 }
 
-.table-wrap tbody tr:hover {
-  background: #f8fbfc;
+.table-wrap th:last-child {
+  border-top-right-radius: 0.875rem;
+  border-bottom-right-radius: 0.875rem;
+}
+
+.table-wrap td {
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid #f1ece6;
+  vertical-align: middle;
+  /* Keeps amounts like "Rs. 4,000" on one line; the table scrolls instead. */
+  white-space: nowrap;
+}
+
+.table-wrap tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table-wrap tbody tr:hover td {
+  background: #fbf8f5;
+}
+
+/* Tables sitting directly inside a padded white panel get breathing room. */
+.rounded-2xl > .table-wrap,
+.rounded-3xl > .table-wrap {
+  padding: 0.5rem;
+}
+
+.brand-gradient {
+  background: linear-gradient(105deg, #d9935f 0%, #b39567 38%, #7f9a6e 68%, #3f8a64 100%);
 }
 
 @media print {

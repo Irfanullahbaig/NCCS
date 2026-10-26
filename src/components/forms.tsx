@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Search, X } from "lucide-react";
@@ -11,7 +11,7 @@ import { createStaff, updateStaff } from "@/actions/staff";
 import { createStudent, deleteStudent, updateStudent } from "@/actions/students";
 import { createUserAction } from "@/actions/users";
 import { Button, ErrorText, Field, Input, Select, Textarea } from "@/components/ui";
-import { formatPKR, MONTH_NAMES } from "@/lib/utils";
+import { calendarDateInKarachi, formatPKR, MONTH_NAMES } from "@/lib/utils";
 import {
   EMPLOYMENT_LABELS,
   EXPENSE_CATEGORY_LABELS,
@@ -26,15 +26,33 @@ import {
 function FeeMonthPicker({
   months,
   onChange,
+  year,
+  onYearChange,
+  disabledMonths = {},
 }: {
   months: number[];
   onChange: (months: number[]) => void;
+  year?: number;
+  onYearChange?: (year: number) => void;
+  /** Months that cannot be charged, with the reason shown in the list. */
+  disabledMonths?: Record<number, string>;
 }) {
   const now = new Date();
   return (
     <>
       <Field label="Fee year">
-        <Input type="number" name="year" min="2000" defaultValue={now.getFullYear()} required />
+        {onYearChange ? (
+          <Input
+            type="number"
+            name="year"
+            min="2000"
+            value={year ?? now.getFullYear()}
+            onChange={(event) => onYearChange(Number(event.target.value))}
+            required
+          />
+        ) : (
+          <Input type="number" name="year" min="2000" defaultValue={now.getFullYear()} required />
+        )}
       </Field>
       <Field label="Fee month">
         <Select
@@ -47,8 +65,8 @@ function FeeMonthPicker({
         >
           <option value="">Select month</option>
           {MONTH_NAMES.map((label, index) => (
-            <option key={label} value={index + 1} disabled={months.includes(index + 1)}>
-              {label}
+            <option key={label} value={index + 1} disabled={months.includes(index + 1) || Boolean(disabledMonths[index + 1])}>
+              {disabledMonths[index + 1] ? `${label} — ${disabledMonths[index + 1]}` : label}
             </option>
           ))}
         </Select>
@@ -132,21 +150,21 @@ export function Modal({
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-navy/50 p-4 sm:items-center">
-      <div className="w-full max-w-3xl rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-navy/40 p-3 backdrop-blur-sm sm:items-center sm:p-4">
+      <div className="w-full max-w-3xl rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6">
           <h3 className="text-lg font-semibold text-navy">{title}</h3>
-          <button onClick={onClose} className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">
+          <button onClick={onClose} className="rounded-xl px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100">
             Close
           </button>
         </div>
-        <div className="max-h-[80vh] overflow-y-auto p-5">{children}</div>
+        <div className="max-h-[80vh] overflow-y-auto p-5 sm:p-6">{children}</div>
       </div>
     </div>
   );
 }
 
-function useSubmit() {
+export function useSubmit() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -817,6 +835,61 @@ export function ExpenseForm({ open, onClose }: { open: boolean; onClose: () => v
   );
 }
 
+type FeeMonthState = {
+  month: number;
+  year: number;
+  label: string;
+  blocked: boolean;
+  blockedReason: string | null;
+  expected: number;
+  waived: number;
+  paid: number;
+  onTimePaid: number;
+  fine: number;
+  fineWaived: boolean;
+  remaining: number;
+  status: string;
+  dueDate: string;
+  lateFeeNote: string;
+  lateFeeIfPaidLate: number;
+};
+
+/** What is owed for a month if it is paid on `paymentDate` (mirrors the server rule). */
+function dueOnDate(state: FeeMonthState, paymentDate: string) {
+  if (state.status === "WAIVED") return { base: 0, fine: 0 };
+  const base = Math.max(0, state.expected - state.waived - state.paid);
+  if (!base && state.remaining === 0) return { base: 0, fine: 0 };
+  const onTime = Boolean(paymentDate) && paymentDate <= state.dueDate;
+  const coveredOnTime = state.onTimePaid + base + state.waived >= state.expected;
+  const fine = onTime && coveredOnTime ? 0 : state.lateFeeIfPaidLate;
+  // A late fee that is already charged but unpaid stays due.
+  return { base, fine: Math.max(0, Math.min(fine, state.expected + fine - state.waived - state.paid - base)) };
+}
+
+function useFeeMonths(studentId: string, year: number) {
+  const key = studentId && year >= 2000 ? `${studentId}:${year}` : "";
+  const [result, setResult] = useState<{ key: string; months: FeeMonthState[]; error: string | null } | null>(null);
+  useEffect(() => {
+    if (!key) return;
+    let cancelled = false;
+    fetch(`/api/students/${studentId}/fees?year=${year}`)
+      .then(async (response) => {
+        const body = await response.json();
+        if (cancelled) return;
+        setResult(response.ok ? { key, months: body.months, error: null } : { key, months: [], error: body.error ?? "Unable to load fees" });
+      })
+      .catch(() => {
+        if (!cancelled) setResult({ key, months: [], error: "Unable to load fees" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [key, studentId, year]);
+  if (!key) return { loading: false, months: [] as FeeMonthState[], error: null };
+  if (result?.key !== key) return { loading: true, months: [] as FeeMonthState[], error: null };
+  return { loading: false, months: result.months, error: result.error };
+}
+
 export function PaymentForm({
   open,
   onClose,
@@ -829,16 +902,37 @@ export function PaymentForm({
   presetStudentId?: string;
 }) {
   const { error, pending, submit } = useSubmit();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = calendarDateInKarachi();
   const now = new Date();
   const [studentId, setStudentId] = useState(presetStudentId ?? "");
   const [months, setMonths] = useState<number[]>([now.getMonth() + 1]);
+  const [year, setYear] = useState(now.getFullYear());
+  const [paymentDate, setPaymentDate] = useState(today);
+  const [edited, setEdited] = useState<Record<number, string>>({});
   const selected = students.find((student) => student.id === studentId);
+  const fees = useFeeMonths(studentId, year);
 
   useEffect(() => {
     setStudentId(presetStudentId ?? "");
     setMonths([new Date().getMonth() + 1]);
+    setYear(new Date().getFullYear());
+    setPaymentDate(calendarDateInKarachi());
+    setEdited({});
   }, [presetStudentId, open]);
+
+  const disabledMonths = Object.fromEntries(
+    fees.months.filter((item) => item.blocked).map((item) => [item.month, "before admission"]),
+  );
+  const rows = months
+    .map((month) => fees.months.find((item) => item.month === month))
+    .filter((item): item is FeeMonthState => Boolean(item));
+  const amountFor = (row: FeeMonthState) => {
+    if (edited[row.month] !== undefined) return edited[row.month];
+    const due = dueOnDate(row, paymentDate);
+    return due.base + due.fine ? String(due.base + due.fine) : "";
+  };
+  const total = rows.reduce((sum, row) => sum + (Number(amountFor(row)) || 0), 0);
+  const blockedChosen = rows.filter((row) => row.blocked);
 
   return (
     <Modal open={open} onClose={onClose} title="Record fee payment">
@@ -854,7 +948,10 @@ export function PaymentForm({
             students={students}
             value={studentId}
             required
-            onChange={(student) => setStudentId(student?.id ?? "")}
+            onChange={(student) => {
+              setStudentId(student?.id ?? "");
+              setEdited({});
+            }}
           />
         </Field>
         {selected ? (
@@ -870,11 +967,104 @@ export function PaymentForm({
             ))}
           </Select>
         </Field>
-        <FeeMonthPicker months={months} onChange={setMonths} />
-        <Field label="Amount per selected month">
-          <Input type="number" min="1" name="amount" defaultValue={selected?.remaining ?? ""} required />
+        <Field label="Payment date">
+          <Input
+            type="date"
+            name="paymentDate"
+            value={paymentDate}
+            max={today}
+            onChange={(event) => {
+              setPaymentDate(event.target.value);
+              setEdited({});
+            }}
+            required
+          />
         </Field>
-        <Field label="Payment date"><Input type="date" name="paymentDate" defaultValue={today} required /></Field>
+        <FeeMonthPicker
+          months={months}
+          onChange={(next) => setMonths(next.filter((month) => !disabledMonths[month]))}
+          year={year}
+          onYearChange={(next) => {
+            setYear(next);
+            setEdited({});
+          }}
+          disabledMonths={disabledMonths}
+        />
+        <div className="sm:col-span-2">
+          {!studentId ? (
+            <p className="rounded-xl border border-dashed border-slate-200 px-3 py-3 text-sm text-slate-500">
+              Choose a student to see what is due for each month.
+            </p>
+          ) : fees.loading ? (
+            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-500">Loading fee balances…</p>
+          ) : fees.error ? (
+            <p className="rounded-xl bg-rose-50 px-3 py-3 text-sm text-rose-700">{fees.error}</p>
+          ) : rows.length ? (
+            <div className="overflow-x-auto rounded-xl border border-slate-100">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">Month</th>
+                    <th className="px-3 py-2">Fee</th>
+                    <th className="px-3 py-2">Paid</th>
+                    <th className="px-3 py-2">Late fee</th>
+                    <th className="px-3 py-2">Due</th>
+                    <th className="px-3 py-2">Amount to pay</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => {
+                    const due = dueOnDate(row, paymentDate);
+                    const settled = row.status === "WAIVED" || due.base + due.fine === 0;
+                    const note = row.status === "WAIVED"
+                      ? "Fee waived"
+                      : settled
+                        ? "Already fully paid"
+                        : row.fineWaived
+                          ? "Late fee waived"
+                          : due.fine
+                            ? `Includes ${formatPKR(due.fine)} late fee (paid after ${row.dueDate.slice(8)} ${MONTH_NAMES[row.month - 1]})`
+                            : row.lateFeeIfPaidLate && paymentDate <= row.dueDate
+                              ? "No late fee: paid by the due date"
+                              : row.lateFeeNote;
+                    return (
+                      <tr key={row.month} className="border-t border-slate-100 align-top">
+                        <td className="px-3 py-2 font-medium text-navy">{row.label}</td>
+                        <td className="px-3 py-2">{formatPKR(row.expected - row.waived)}</td>
+                        <td className="px-3 py-2">{formatPKR(row.paid)}</td>
+                        <td className="px-3 py-2">{due.fine ? formatPKR(due.fine) : "—"}</td>
+                        <td className="px-3 py-2 font-medium">{formatPKR(due.base + due.fine)}</td>
+                        <td className="px-3 py-2">
+                          <Input
+                            type="number"
+                            min="0"
+                            name={`amount_${row.month}`}
+                            value={settled ? "" : amountFor(row)}
+                            disabled={settled}
+                            onChange={(event) => setEdited((current) => ({ ...current, [row.month]: event.target.value }))}
+                            className="h-9 min-w-24"
+                          />
+                          <p className="mt-1 text-xs text-slate-500">{note}</p>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-slate-200 bg-slate-50">
+                    <td className="px-3 py-2 font-semibold text-navy" colSpan={5}>Total</td>
+                    <td className="px-3 py-2 font-semibold text-navy">{formatPKR(total)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ) : null}
+          {blockedChosen.length ? (
+            <p className="mt-2 text-xs text-rose-600">
+              {blockedChosen.map((row) => row.label).join(", ")}: {blockedChosen[0].blockedReason}. Remove these months.
+            </p>
+          ) : null}
+        </div>
         <Field label="Payment method">
           <Select name="paymentMethod" required>
             {Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => (
@@ -888,7 +1078,9 @@ export function PaymentForm({
           <ErrorText>{error}</ErrorText>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={pending}>{pending ? "Saving..." : "Record payment"}</Button>
+            <Button type="submit" disabled={pending || !total || blockedChosen.length > 0}>
+              {pending ? "Saving..." : total ? `Record ${formatPKR(total)}` : "Record payment"}
+            </Button>
           </div>
         </div>
       </form>
@@ -927,22 +1119,43 @@ export function UserForm({ open, onClose }: { open: boolean; onClose: () => void
   );
 }
 
-export function AddStudentButton({ classes }: { classes: ClassOption[] }) {
+/**
+ * Lets a link such as `/students/123?action=edit` (used by global search) open
+ * a form straight away. Closing it removes `action` from the address bar.
+ */
+function useAutoOpen(autoOpenOn?: string) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const requested = Boolean(autoOpenOn) && searchParams.get("action") === autoOpenOn;
   const [open, setOpen] = useState(false);
+  const close = () => {
+    setOpen(false);
+    if (!requested) return;
+    const rest = new URLSearchParams(searchParams.toString());
+    rest.delete("action");
+    const query = rest.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  };
+  return { open: open || requested, show: () => setOpen(true), close };
+}
+
+export function AddStudentButton({ classes, autoOpenOn }: { classes: ClassOption[]; autoOpenOn?: string }) {
+  const { open, show, close } = useAutoOpen(autoOpenOn);
   return (
     <>
-      <Button onClick={() => setOpen(true)}>Add student</Button>
-      <StudentForm open={open} onClose={() => setOpen(false)} classes={classes} />
+      <Button onClick={show}>Add student</Button>
+      <StudentForm open={open} onClose={close} classes={classes} />
     </>
   );
 }
 
-export function AddStaffButton({ subjects, classes }: { subjects: SubjectOption[]; classes: ClassOption[] }) {
-  const [open, setOpen] = useState(false);
+export function AddStaffButton({ subjects, classes, autoOpenOn }: { subjects: SubjectOption[]; classes: ClassOption[]; autoOpenOn?: string }) {
+  const { open, show, close } = useAutoOpen(autoOpenOn);
   return (
     <>
-      <Button onClick={() => setOpen(true)}>Add staff</Button>
-      <StaffForm open={open} onClose={() => setOpen(false)} subjects={subjects} classes={classes} />
+      <Button onClick={show}>Add staff</Button>
+      <StaffForm open={open} onClose={close} subjects={subjects} classes={classes} />
     </>
   );
 }
@@ -960,32 +1173,42 @@ export function AddClassButtons({ teachers }: { teachers: Array<{ id: string; na
   );
 }
 
-export function AddIncomeButton({ students, classes }: { students: StudentOption[]; classes: ClassOption[] }) {
-  const [open, setOpen] = useState(false);
+export function AddIncomeButton({ students, classes, autoOpenOn }: { students: StudentOption[]; classes: ClassOption[]; autoOpenOn?: string }) {
+  const { open, show, close } = useAutoOpen(autoOpenOn);
   return (
     <>
-      <Button onClick={() => setOpen(true)}>Add income</Button>
-      <IncomeForm open={open} onClose={() => setOpen(false)} students={students} classes={classes} />
+      <Button onClick={show}>Add income</Button>
+      <IncomeForm open={open} onClose={close} students={students} classes={classes} />
     </>
   );
 }
 
-export function AddExpenseButton() {
-  const [open, setOpen] = useState(false);
+export function AddExpenseButton({ autoOpenOn }: { autoOpenOn?: string } = {}) {
+  const { open, show, close } = useAutoOpen(autoOpenOn);
   return (
     <>
-      <Button onClick={() => setOpen(true)}>Add expense</Button>
-      <ExpenseForm open={open} onClose={() => setOpen(false)} />
+      <Button onClick={show}>Add expense</Button>
+      <ExpenseForm open={open} onClose={close} />
     </>
   );
 }
 
-export function RecordPaymentButton({ students, presetStudentId, label = "Record payment" }: { students: StudentOption[]; presetStudentId?: string; label?: string }) {
-  const [open, setOpen] = useState(false);
+export function RecordPaymentButton({
+  students,
+  presetStudentId,
+  label = "Record payment",
+  autoOpenOn,
+}: {
+  students: StudentOption[];
+  presetStudentId?: string;
+  label?: string;
+  autoOpenOn?: string;
+}) {
+  const { open, show, close } = useAutoOpen(autoOpenOn);
   return (
     <>
-      <Button onClick={() => setOpen(true)}>{label}</Button>
-      <PaymentForm open={open} onClose={() => setOpen(false)} students={students} presetStudentId={presetStudentId} />
+      <Button onClick={show}>{label}</Button>
+      <PaymentForm open={open} onClose={close} students={students} presetStudentId={presetStudentId} />
     </>
   );
 }
@@ -1000,12 +1223,20 @@ export function AddUserButton() {
   );
 }
 
-export function EditStudentButton({ classes, initial }: { classes: ClassOption[]; initial: NonNullable<Parameters<typeof StudentForm>[0]["initial"]> }) {
-  const [open, setOpen] = useState(false);
+export function EditStudentButton({
+  classes,
+  initial,
+  autoOpenOn,
+}: {
+  classes: ClassOption[];
+  initial: NonNullable<Parameters<typeof StudentForm>[0]["initial"]>;
+  autoOpenOn?: string;
+}) {
+  const { open, show, close } = useAutoOpen(autoOpenOn);
   return (
     <>
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>Edit</Button>
-      <StudentForm open={open} onClose={() => setOpen(false)} classes={classes} initial={initial} />
+      <Button size="sm" variant="outline" onClick={show}>Edit</Button>
+      <StudentForm open={open} onClose={close} classes={classes} initial={initial} />
     </>
   );
 }

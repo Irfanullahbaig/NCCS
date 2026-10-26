@@ -55,7 +55,7 @@ export default async function AdvancesPage({
         <StatCard label="Employees with advances" value={records.filter((record) => record.advance > 0).length} />
         <StatCard label="Remaining payroll" value={formatPKR(records.reduce((sum, record) => sum + record.remainingAmount, 0))} tone="rose" />
       </div>
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-3xl bg-white shadow-card">
         {records.length ? (
           <div className="table-wrap">
             <table>

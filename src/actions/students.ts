@@ -7,7 +7,7 @@ import { db, newId, nowIso } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { nextStudentRegNo } from "@/lib/ids";
 import { parseDateInput } from "@/lib/utils";
-import { ensureStudentFeeRecord, invalidateFeeMaintenance } from "@/lib/finance";
+import { ensureStudentFeeRecord, invalidateFeeMaintenance, recalculateStudentFees } from "@/lib/finance";
 
 function fail(error: string) {
   return { ok: false as const, error };
@@ -125,6 +125,11 @@ export async function updateStudent(formData: FormData) {
     })
     .eq("id", id);
   if (updated.error) throw updated.error;
+
+  // The admission date decides which months are charged and whether a late fee applies.
+  await recalculateStudentFees(id);
+  await ensureStudentFeeRecord({ studentId: id, userId: user.id });
+  invalidateFeeMaintenance();
 
   await writeAudit({
     userId: user.id,

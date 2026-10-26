@@ -5,6 +5,9 @@ import { saveSettingsForm } from "@/actions/users";
 import { createAcademicYearForm } from "@/actions/classes";
 import { listBackups, ensureWeeklyBackup } from "@/lib/backup";
 import { BackupActions } from "@/components/backup-forms";
+import { LateFeeSettingsForm } from "@/components/late-fee";
+import { getLateFeePolicy } from "@/lib/finance";
+import { LATE_FEE_AMOUNT, LATE_FEE_DAY } from "@/lib/constants";
 
 export default async function SettingsPage() {
   await requirePermission("settings.manage");
@@ -16,10 +19,11 @@ export default async function SettingsPage() {
   if (yearsRes.error) throw yearsRes.error;
   const years = yearsRes.data ?? [];
   const backups = await listBackups();
+  const lateFeePolicy = await getLateFeePolicy();
 
   return (
     <div>
-      <PageHeader title="Settings" subtitle="School profile, academic years, and database backup recovery." />
+      <PageHeader title="Settings" subtitle="School profile, academic years, late fees, and database backup recovery." />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="School profile">
           <form action={saveSettingsForm} className="grid gap-4">
@@ -50,6 +54,14 @@ export default async function SettingsPage() {
           </form>
         </Card>
       </div>
+      <Card title="Late fees" className="mt-4 scroll-mt-20" id="late-fees">
+        <LateFeeSettingsForm
+          chargeOnPartial={lateFeePolicy.chargeOnPartial}
+          startMonth={lateFeePolicy.startMonth}
+          amount={LATE_FEE_AMOUNT}
+          day={LATE_FEE_DAY}
+        />
+      </Card>
       <Card title="Database backup & recovery" className="mt-4">
         <p className="mb-4 text-sm text-slate-600">
           A complete JSON snapshot of the Supabase database is created automatically every week. You can also download a copy now or restore an earlier backup. Restore is limited to Admin.

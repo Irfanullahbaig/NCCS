@@ -59,9 +59,7 @@ const BELONGS_TO: Record<string, Record<string, { table: string; fk: string }>> 
   IncomeTransaction: {
     student: { table: "Student", fk: "studentId" },
     class: { table: "Class", fk: "classId" },
-    feePayment: { table: "FeePayment", fk: "feePaymentId" },
   },
-  ExpenseTransaction: { salaryPayment: { table: "SalaryPayment", fk: "salaryPaymentId" } },
   SalaryRecord: { staff: { table: "Staff", fk: "staffId" } },
   SalaryPayment: { staff: { table: "Staff", fk: "staffId" }, salaryRecord: { table: "SalaryRecord", fk: "salaryRecordId" } },
   AuditLog: { user: { table: "User", fk: "userId" } },
@@ -76,6 +74,9 @@ const HAS_MANY: Record<string, Record<string, { table: string; fk: string }>> = 
   Student: { feeRecords: { table: "FeeRecord", fk: "studentId" }, payments: { table: "FeePayment", fk: "studentId" } },
   FeeRecord: { payments: { table: "FeePayment", fk: "feeRecordId" } },
   SalaryRecord: { payments: { table: "SalaryPayment", fk: "salaryRecordId" } },
+  // The link column lives on the payment, so these are looked up in reverse.
+  IncomeTransaction: { feePayment: { table: "FeePayment", fk: "incomeTransactionId" } },
+  ExpenseTransaction: { salaryPayment: { table: "SalaryPayment", fk: "expenseTransactionId" } },
 };
 
 function dataDir() {

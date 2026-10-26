@@ -40,24 +40,26 @@ export default async function LoginPage({
   const params = await searchParams;
   const databaseConfigured = isDatabaseConfigured();
   return (
-    <div className="grid min-h-screen min-w-0 lg:grid-cols-2">
-      <section className="relative hidden min-w-0 overflow-hidden bg-navy p-8 text-white sm:p-10 lg:flex lg:flex-col">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(20,184,166,0.25),_transparent_45%)]" />
-        <LoginLogo size="lg" />
+    <div className="grid min-h-screen min-w-0 gap-4 p-0 lg:grid-cols-2 lg:p-4">
+      <section className="brand-gradient relative hidden min-w-0 overflow-hidden rounded-3xl p-8 text-white shadow-card sm:p-10 lg:flex lg:flex-col">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.22),_transparent_45%)]" />
+        <div className="relative z-10 inline-flex w-fit rounded-2xl bg-white px-3 py-2">
+          <LoginLogo size="lg" />
+        </div>
         <div className="relative my-auto max-w-lg">
           <h1 className="text-4xl font-semibold leading-tight">School & College Management Dashboard</h1>
-          <p className="mt-4 text-white/70">
+          <p className="mt-4 text-white/85">
             Manage students, staff, classes, and finances from one source of truth. Fee payments automatically update student records, class dashboards, and financial reports.
           </p>
         </div>
-        <p className="relative text-sm text-white/50">{SCHOOL_FULL_NAME}</p>
+        <p className="relative text-sm text-white/75">{SCHOOL_FULL_NAME}</p>
       </section>
       <section className="flex min-w-0 items-center justify-center px-4 py-8 sm:px-6 sm:py-12">
-        <div className="w-full max-w-md">
+        <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-card sm:p-8">
           <div className="mb-6 flex justify-center lg:hidden">
             <LoginLogo align="center" />
           </div>
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal">Welcome back</p>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange">Welcome back</p>
           <h2 className="mt-2 text-3xl font-semibold text-navy">Sign in</h2>
           <p className="mt-2 text-sm text-slate-500">Use your assigned role to access the modules you are permitted to manage.</p>
           {params.error === "invalid" ? (
@@ -88,14 +90,14 @@ export default async function LoginPage({
           <form action="/api/auth/login" method="post" className="mt-8 space-y-4">
             <input type="hidden" name="next" value={params.next ?? "/"} />
             <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Email</label>
-              <input name="email" type="email" required autoComplete="username" className="h-11 w-full rounded-xl border border-slate-200 px-3" />
+              <label className="mb-1.5 block text-xs font-medium text-slate-500">Email</label>
+              <input name="email" type="email" required autoComplete="username" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 outline-none transition focus:border-teal focus:ring-4 focus:ring-teal/10" />
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">Password</label>
-              <input name="password" type="password" required autoComplete="current-password" className="h-11 w-full rounded-xl border border-slate-200 px-3" />
+              <label className="mb-1.5 block text-xs font-medium text-slate-500">Password</label>
+              <input name="password" type="password" required autoComplete="current-password" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 outline-none transition focus:border-teal focus:ring-4 focus:ring-teal/10" />
             </div>
-            <button className="h-11 w-full rounded-xl bg-teal font-medium text-white hover:bg-teal-500">Sign in</button>
+            <button className="h-11 w-full rounded-xl bg-teal font-semibold text-white shadow-sm shadow-teal/20 hover:bg-teal-500">Sign in</button>
           </form>
         </div>
       </section>

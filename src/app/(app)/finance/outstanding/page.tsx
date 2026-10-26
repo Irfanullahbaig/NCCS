@@ -3,10 +3,11 @@ import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { ensureCurrentMonthFees } from "@/lib/finance";
-import { currentMonthYear, formatDate, formatPKR, fullName } from "@/lib/utils";
+import { currentMonthYear, formatDate, formatPKR, fullName, monthLabel } from "@/lib/utils";
 import { PageHeader, EmptyState, ViewOnlyBadge } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
 import { RecordPaymentButton } from "@/components/forms";
+import { LateFeeCell } from "@/components/late-fee";
 
 export default async function OutstandingPage() {
   const user = await requirePermission("fees.view");
@@ -39,13 +40,13 @@ export default async function OutstandingPage() {
         subtitle="Remaining balances after the 10th include a Rs. 200 late fine. Waived scholarship fees do not appear here."
         actions={
           can(user.role, "fees.record") && students.length ? (
-            <RecordPaymentButton students={students} />
+            <RecordPaymentButton students={students} autoOpenOn="pay" />
           ) : !can(user.role, "fees.record") ? (
             <ViewOnlyBadge />
           ) : null
         }
       />
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-3xl bg-white shadow-card">
         {records.length ? (
           <div className="table-wrap">
             <table>
@@ -71,7 +72,16 @@ export default async function OutstandingPage() {
                     <td>{record.student.class.name} — {record.student.class.program.name}</td>
                     <td><TypeBadge type={record.student.studentType} /></td>
                     <td>{formatPKR(record.remainingAmount)}</td>
-                    <td>{(record.fineAmount ?? 0) > 0 ? formatPKR(record.fineAmount) : "—"}</td>
+                    <td>
+                      <LateFeeCell
+                        feeRecordId={record.id}
+                        fine={record.fineAmount ?? 0}
+                        fineWaived={record.fineWaived}
+                        reason={record.fineWaiveReason}
+                        label={`${fullName(record.student.firstName, record.student.lastName)}, ${monthLabel(record.month, record.year)}`}
+                        canWaive={can(user.role, "fees.waive")}
+                      />
+                    </td>
                     <td>{formatDate(record.dueDate)}</td>
                     <td><FeeBadge status={record.status} /></td>
                   </tr>

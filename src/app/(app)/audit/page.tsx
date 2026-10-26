@@ -19,7 +19,7 @@ export default async function AuditPage() {
         title="Audit log"
         subtitle="Student, staff, class, payment, income, and expense actions are recorded with user and timestamp."
       />
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-3xl bg-white shadow-card">
         {logs.length ? (
           <div className="table-wrap">
             <table>

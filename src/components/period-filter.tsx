@@ -17,7 +17,7 @@ export function PeriodFilter({
   const [mode, setMode] = useState(period.mode);
 
   return (
-    <form action={action} className="mb-5 flex flex-wrap items-end gap-3 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+    <form action={action} className="mb-5 flex flex-wrap items-end gap-3 rounded-3xl bg-white p-4 shadow-card">
       <div className="min-w-[9rem] flex-1">
         <Label htmlFor="period-mode">View</Label>
         <Select id="period-mode" name="period" value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}>

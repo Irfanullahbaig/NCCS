@@ -333,6 +333,10 @@ export type Database = {
           dueDate: string
           expectedAmount: number
           fineAmount: number
+          fineWaiveReason: string | null
+          fineWaived: boolean
+          fineWaivedAt: string | null
+          fineWaivedById: string | null
           id: string
           month: number
           paidAmount: number
@@ -352,6 +356,10 @@ export type Database = {
           dueDate: string
           expectedAmount: number
           fineAmount?: number
+          fineWaiveReason?: string | null
+          fineWaived?: boolean
+          fineWaivedAt?: string | null
+          fineWaivedById?: string | null
           id: string
           month: number
           paidAmount?: number
@@ -371,6 +379,10 @@ export type Database = {
           dueDate?: string
           expectedAmount?: number
           fineAmount?: number
+          fineWaiveReason?: string | null
+          fineWaived?: boolean
+          fineWaivedAt?: string | null
+          fineWaivedById?: string | null
           id?: string
           month?: number
           paidAmount?: number

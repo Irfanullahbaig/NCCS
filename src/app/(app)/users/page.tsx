@@ -18,7 +18,7 @@ export default async function UsersPage() {
         subtitle="Admin-only account management. Accountant/HR cannot modify admin accounts or system settings."
         actions={<AddUserButton />}
       />
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-3xl bg-white shadow-card">
         <div className="table-wrap">
           <table>
             <thead>

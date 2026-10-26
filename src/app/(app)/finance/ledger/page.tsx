@@ -77,7 +77,7 @@ export default async function LedgerPage({
           </dl>
         </Card>
       ) : null}
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-3xl bg-white shadow-card">
         {rows.length ? (
           <div className="table-wrap">
             <table>

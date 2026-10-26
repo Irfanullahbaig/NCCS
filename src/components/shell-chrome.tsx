@@ -6,13 +6,19 @@ import { useState, type ReactNode } from "react";
 import {
   Banknote,
   BookOpen,
+  ChartPie,
   ClipboardList,
   Coins,
+  FileText,
   GraduationCap,
+  HandCoins,
+  History,
+  Landmark,
   LayoutDashboard,
   LogOut,
   Menu,
   Receipt,
+  ScrollText,
   Settings,
   Shield,
   Users,
@@ -21,36 +27,31 @@ import {
 } from "lucide-react";
 import type { Role } from "@/lib/enums";
 import { can } from "@/lib/permissions";
+import { NAV_PAGES, type NavSection } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/logo";
 
-type NavItem = {
-  href: string;
-  label: string;
-  icon: typeof LayoutDashboard;
-  permission: Parameters<typeof can>[1];
-  indent?: boolean;
+const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
+  "/": LayoutDashboard,
+  "/students": GraduationCap,
+  "/classes": BookOpen,
+  "/staff": Users,
+  "/finance": Landmark,
+  "/finance/fees": ClipboardList,
+  "/finance/outstanding": HandCoins,
+  "/finance/income": Banknote,
+  "/finance/expenses": Receipt,
+  "/finance/salaries": Coins,
+  "/finance/advances": Wallet,
+  "/finance/profit-loss": ChartPie,
+  "/finance/ledger": ScrollText,
+  "/reports": FileText,
+  "/users": Shield,
+  "/audit": History,
+  "/settings": Settings,
 };
 
-const NAV: NavItem[] = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard, permission: "dashboard.view" },
-  { href: "/students", label: "Students", icon: GraduationCap, permission: "students.view" },
-  { href: "/classes", label: "Classes", icon: BookOpen, permission: "classes.view" },
-  { href: "/staff", label: "Staff / Teachers", icon: Users, permission: "staff.view" },
-  { href: "/finance", label: "Finance", icon: Wallet, permission: "finance.view" },
-  { href: "/finance/fees", label: "Student Fees", icon: ClipboardList, permission: "fees.view", indent: true },
-  { href: "/finance/outstanding", label: "Fee collection / outstanding", icon: ClipboardList, permission: "fees.view", indent: true },
-  { href: "/finance/income", label: "Income", icon: Banknote, permission: "finance.view", indent: true },
-  { href: "/finance/expenses", label: "Expenses", icon: Receipt, permission: "finance.view", indent: true },
-  { href: "/finance/salaries", label: "Payroll", icon: Coins, permission: "salaries.view", indent: true },
-  { href: "/finance/advances", label: "Advance salary", icon: Coins, permission: "salaries.view", indent: true },
-  { href: "/finance/profit-loss", label: "Profit & Loss", icon: Wallet, permission: "finance.analytics", indent: true },
-  { href: "/finance/ledger", label: "Transactions / Ledger", icon: ClipboardList, permission: "finance.view", indent: true },
-  { href: "/reports", label: "Reports", icon: ClipboardList, permission: "reports.view" },
-  { href: "/users", label: "Users", icon: Shield, permission: "users.manage" },
-  { href: "/audit", label: "Audit Log", icon: ClipboardList, permission: "audit.view" },
-  { href: "/settings", label: "Settings", icon: Settings, permission: "settings.manage" },
-];
+const SECTIONS: NavSection[] = ["Overview", "Academics", "Finance", "Administration"];
 
 export function ShellChrome({
   user,
@@ -63,7 +64,10 @@ export function ShellChrome({
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const items = NAV.filter((item) => can(user.role, item.permission));
+  // Accountants are redirected from the finance overview, so it is hidden for them.
+  const items = NAV_PAGES.filter(
+    (item) => can(user.role, item.permission) && !(item.href === "/finance" && !can(user.role, "finance.analytics")),
+  );
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
@@ -75,60 +79,84 @@ export function ShellChrome({
     <>
       {open ? (
         <button
-          className="fixed inset-0 z-30 bg-navy/40 lg:hidden"
+          className="fixed inset-0 z-30 bg-navy/30 backdrop-blur-sm lg:hidden"
           onClick={() => setOpen(false)}
           aria-label="Close menu"
         />
       ) : null}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-72 flex-col bg-navy text-white transition-transform lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-40 flex w-72 flex-col bg-white shadow-card transition-transform lg:inset-y-4 lg:left-4 lg:w-64 lg:translate-x-0 lg:rounded-3xl",
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
-        <div className="border-b border-white/10 px-4 py-4">
-          <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-5">
+          <div className="min-w-0">
             <BrandLogo />
-            <button className="lg:hidden" onClick={() => setOpen(false)} aria-label="Close sidebar">
-              <X className="h-5 w-5" />
-            </button>
+            {schoolName && schoolName !== "NCCS" ? (
+              <p className="mt-1.5 truncate text-xs text-slate-500">{schoolName}</p>
+            ) : null}
           </div>
-          {schoolName && schoolName !== "NCCS" ? (
-            <p className="mt-2 truncate text-xs text-white/60">{schoolName}</p>
-          ) : null}
+          <button className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 lg:hidden" onClick={() => setOpen(false)} aria-label="Close sidebar">
+            <X className="h-5 w-5" />
+          </button>
         </div>
-        <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
-          {items.map((item) => {
-            const Icon = item.icon;
-            const active = isActive(item.href);
+        <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          {SECTIONS.map((section) => {
+            const sectionItems = items.filter((item) => item.section === section);
+            if (!sectionItems.length) return null;
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setOpen(false)}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm transition",
-                  item.indent && can(user.role, "finance.analytics") && "ml-4 py-1 text-[13px]",
-                  active ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5 hover:text-white",
-                )}
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                {item.label}
-              </Link>
+              <div key={section} className="mt-3">
+                <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{section}</p>
+                <div className="space-y-0.5">
+                  {sectionItems.map((item) => {
+                    const Icon = NAV_ICONS[item.href] ?? ClipboardList;
+                    const active = isActive(item.href);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setOpen(false)}
+                        aria-current={active ? "page" : undefined}
+                        className={cn(
+                          "flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition",
+                          active ? "bg-peach font-semibold text-orange" : "text-slate-600 hover:bg-slate-50 hover:text-navy",
+                        )}
+                      >
+                        <Icon className={cn("h-[18px] w-[18px] shrink-0", active ? "text-orange" : "text-slate-400")} />
+                        <span className="truncate">{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
             );
           })}
         </nav>
-        <div className="border-t border-white/10 px-4 py-3">
+        {can(user.role, "fees.record") ? (
+          <div className="brand-gradient mx-3 mb-3 hidden rounded-2xl p-4 text-white [@media(min-height:900px)]:block">
+            <p className="text-sm font-semibold">Collect a fee</p>
+            <p className="mt-1 text-xs text-white/80">Record a payment and the student, class and finance pages update together.</p>
+            <Link
+              href="/finance/fees?action=pay"
+              onClick={() => setOpen(false)}
+              className="mt-3 inline-flex h-9 items-center rounded-xl bg-white px-3 text-xs font-semibold text-navy hover:bg-white/90"
+            >
+              Record payment
+            </Link>
+          </div>
+        ) : null}
+        <div className="border-t border-slate-100 px-3 py-3">
           <form action="/api/auth/logout" method="post">
-            <button className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-white/70 hover:bg-white/5 hover:text-white">
-              <LogOut className="h-4 w-4" />
+            <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-navy">
+              <LogOut className="h-[18px] w-[18px] text-slate-400" />
               Sign out
             </button>
           </form>
         </div>
       </aside>
-      <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur lg:ml-72">
-        <button className="rounded-xl p-2 hover:bg-slate-100 lg:hidden" onClick={() => setOpen(true)} aria-label="Open menu">
+      <header className="sticky top-0 z-20 flex items-center gap-3 bg-[#efebe5]/80 px-4 py-3 backdrop-blur-md sm:px-6 lg:ml-[17rem] lg:px-6">
+        <button className="rounded-xl bg-white p-2 shadow-card lg:hidden" onClick={() => setOpen(true)} aria-label="Open menu">
           <Menu className="h-5 w-5" />
         </button>
         {children}
