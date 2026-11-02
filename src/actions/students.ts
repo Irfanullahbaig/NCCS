@@ -3,11 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { Gender, StudentStatus, StudentType } from "@/lib/enums";
 import { requirePermission } from "@/lib/auth";
-import { db, newId, nowIso } from "@/lib/db";
+import { db, nowIso } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
-import { nextStudentRegNo } from "@/lib/ids";
 import { parseDateInput } from "@/lib/utils";
 import { ensureStudentFeeRecord, invalidateFeeMaintenance, recalculateStudentFees } from "@/lib/finance";
+import { createStudentRecord } from "@/lib/students";
 
 function fail(error: string) {
   return { ok: false as const, error };
@@ -37,50 +37,27 @@ export async function createStudent(formData: FormData) {
   if (schoolClass.error) throw schoolClass.error;
   if (!schoolClass.data) return fail("Class not found");
 
-  const year = parseDateInput(dateOfAdmission).getFullYear();
-  const registrationNo = String(formData.get("registrationNo") ?? "").trim() || (await nextStudentRegNo(year));
-  const stamp = nowIso();
-
-  const student = await db()
-    .from("Student")
-    .insert({
-      id: newId(),
-      registrationNo,
-      firstName,
-      lastName,
-      fatherName,
-      classId,
-      dateOfAdmission: nowIso(parseDateInput(dateOfAdmission)),
-      gender,
-      contactNumber,
-      email: email || null,
-      address,
-      studentType,
-      feeAmount: Math.round(feeAmount),
-      status,
-      createdAt: stamp,
-      updatedAt: stamp,
-      createdById: user.id,
-      updatedById: user.id,
-    })
-    .select("id")
-    .single();
-  if (student.error) throw student.error;
-
-  await ensureStudentFeeRecord({ studentId: student.data.id, userId: user.id });
-  invalidateFeeMaintenance();
-  await writeAudit({
+  const student = await createStudentRecord({
+    registrationNo: String(formData.get("registrationNo") ?? "").trim() || null,
+    firstName,
+    lastName,
+    fatherName,
+    classId,
+    dateOfAdmission: parseDateInput(dateOfAdmission),
+    gender,
+    contactNumber,
+    email: email || null,
+    address,
+    studentType,
+    feeAmount,
+    status,
     userId: user.id,
-    action: "STUDENT_ADDED",
-    entityType: "Student",
-    entityId: student.data.id,
-    details: { registrationNo, name: `${firstName} ${lastName}`, studentType },
   });
 
   revalidatePath("/students");
   revalidatePath("/classes");
   revalidatePath("/");
-  return { ok: true as const, id: student.data.id };
+  return { ok: true as const, id: student.id };
 }
 
 export async function updateStudent(formData: FormData) {

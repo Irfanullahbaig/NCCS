@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
+import { ImportButton } from "@/components/import-dialog";
+import { importTypesFor } from "@/lib/import/specs";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { formatDate, formatPKR, fullName } from "@/lib/utils";
@@ -81,7 +83,12 @@ export default async function IncomePage({
         subtitle="Student fee income automatically updates the student fee record, class dashboard, and outstanding balance."
         actions={
           can(user.role, "finance.create") ? (
-            <AddIncomeButton autoOpenOn="new" students={studentOptions} classes={classOptions} />
+            <>
+              {importTypesFor(user.role, ["income", "fees"]).length ? (
+                <ImportButton types={importTypesFor(user.role, ["income", "fees"])} label="Import" />
+              ) : null}
+              <AddIncomeButton autoOpenOn="new" students={studentOptions} classes={classOptions} />
+            </>
           ) : (
             <ViewOnlyBadge />
           )

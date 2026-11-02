@@ -28,6 +28,7 @@ export type Permission =
   | "salaries.view"
   | "salaries.record"
   | "backup.manage"
+  | "data.import"
   | "users.manage"
   | "settings.manage"
   | "audit.view";
@@ -60,6 +61,7 @@ const ALL: Permission[] = [
   "salaries.view",
   "salaries.record",
   "backup.manage",
+  "data.import",
   "users.manage",
   "settings.manage",
   "audit.view",
@@ -100,6 +102,7 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "finance.create",
     "finance.edit",
     "finance.void",
+    "data.import",
     "reports.view",
     "reports.export",
     "salaries.view",

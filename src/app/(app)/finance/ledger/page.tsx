@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
+import { ImportButton } from "@/components/import-dialog";
+import { importTypesFor } from "@/lib/import/specs";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { getRecordHistory } from "@/lib/record-history";
@@ -42,6 +44,11 @@ export default async function LedgerPage({
       <PageHeader
         title="Transactions / Ledger"
         subtitle={`Every posted income and expense for ${period.label}, with the person and period it belongs to.`}
+        actions={
+          importTypesFor(user.role, ["transactions", "fees", "income", "expenses"]).length ? (
+            <ImportButton types={importTypesFor(user.role, ["transactions", "fees", "income", "expenses"])} label="Import" />
+          ) : null
+        }
       />
       <PeriodFilter
         action="/finance/ledger"

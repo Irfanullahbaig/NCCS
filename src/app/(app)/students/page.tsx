@@ -1,4 +1,6 @@
 import { requirePermission } from "@/lib/auth";
+import { ImportButton } from "@/components/import-dialog";
+import { importTypesFor } from "@/lib/import/specs";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { ensureCurrentMonthFees } from "@/lib/finance";
@@ -74,7 +76,12 @@ export default async function StudentsPage({
       <PageHeader
         title="Students"
         subtitle="Search, filter, and manage student records. Fee status is calculated from actual payments."
-        actions={can(user.role, "students.create") ? <AddStudentButton classes={classOptions} autoOpenOn="new" /> : null}
+        actions={
+          <>
+            {importTypesFor(user.role, ["students"]).length ? <ImportButton types={["students"]} label="Import students" /> : null}
+            {can(user.role, "students.create") ? <AddStudentButton classes={classOptions} autoOpenOn="new" /> : null}
+          </>
+        }
       />
       <form className="mb-4 grid gap-3 rounded-3xl bg-white p-4 shadow-card md:grid-cols-6">
         <Input name="q" defaultValue={params.q} placeholder="Name, father, ID, class..." className="md:col-span-2" />

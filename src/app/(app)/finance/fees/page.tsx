@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { AlertCircle, BadgePercent, Banknote, CircleDollarSign, Clock, Split, Users, Wallet } from "lucide-react";
 import { requirePermission } from "@/lib/auth";
+import { ImportButton } from "@/components/import-dialog";
+import { importTypesFor } from "@/lib/import/specs";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { ensureCurrentMonthFees } from "@/lib/finance";
@@ -69,7 +71,16 @@ export default async function FeesPage({
       <PageHeader
         title="Student fees"
         subtitle={`Fee month ${monthLabel(month, year)}. Unpaid fees after the 10th add a Rs. 200 late fine.`}
-        actions={can(user.role, "fees.record") ? <RecordPaymentButton students={students} autoOpenOn="pay" /> : <ViewOnlyBadge />}
+        actions={
+          can(user.role, "fees.record") ? (
+            <>
+              {importTypesFor(user.role, ["fees"]).length ? <ImportButton types={["fees"]} label="Import fee collections" /> : null}
+              <RecordPaymentButton students={students} autoOpenOn="pay" />
+            </>
+          ) : (
+            <ViewOnlyBadge />
+          )
+        }
       />
       <form className="mb-4 grid gap-3 rounded-3xl bg-white p-4 shadow-card md:grid-cols-4">
         <Select name="month" defaultValue={String(month)}>

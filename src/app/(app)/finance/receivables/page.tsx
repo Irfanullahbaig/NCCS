@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
+import { ImportButton } from "@/components/import-dialog";
+import { importTypesFor } from "@/lib/import/specs";
 import { can } from "@/lib/permissions";
 import { periodFromParams } from "@/lib/period";
 import { getReceivables } from "@/lib/receivables";
@@ -25,6 +27,11 @@ export default async function ReceivablesPage({
       <PageHeader
         title="Receivables"
         subtitle="Expected fees for every enrolled student, from their fixed monthly fee. Paid amounts are already in Income; the rest is still receivable."
+        actions={
+          importTypesFor(user.role, ["receivables", "fees"]).length ? (
+            <ImportButton types={importTypesFor(user.role, ["receivables", "fees"])} label="Import" />
+          ) : null
+        }
       />
       <PeriodFilter action="/finance/receivables" period={period} />
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">

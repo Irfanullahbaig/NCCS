@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
+import { ImportButton } from "@/components/import-dialog";
+import { importTypesFor } from "@/lib/import/specs";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { formatDate, formatPKR } from "@/lib/utils";
@@ -34,7 +36,16 @@ export default async function ExpensesPage({
       <PageHeader
         title="Expenses"
         subtitle="Record salaries, utilities, rent, and other operating costs."
-        actions={can(user.role, "finance.create") ? <AddExpenseButton autoOpenOn="new" /> : <ViewOnlyBadge />}
+        actions={
+          can(user.role, "finance.create") ? (
+            <>
+              {importTypesFor(user.role, ["expenses"]).length ? <ImportButton types={["expenses"]} label="Import expenses" /> : null}
+              <AddExpenseButton autoOpenOn="new" />
+            </>
+          ) : (
+            <ViewOnlyBadge />
+          )
+        }
       />
       <form className="mb-4 grid gap-3 rounded-3xl bg-white p-4 shadow-card md:grid-cols-4">
         <Input name="q" defaultValue={params.q} placeholder="Expense ID, paid to, reference..." />
