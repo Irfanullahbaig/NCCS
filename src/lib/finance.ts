@@ -587,7 +587,7 @@ export async function voidStudentPayment(input: { paymentId: string; reason: str
     action: "PAYMENT_VOIDED",
     entityType: "FeePayment",
     entityId: payment.data.id,
-    details: { reason: input.reason },
+    details: { reason: input.reason, original: pick(payment.data, [...PAYMENT_FIELDS, "studentId", "feeRecordId", "incomeTransactionId"]) },
   });
 }
 
@@ -744,7 +744,7 @@ export async function voidIncome(input: { id: string; reason: string; userId: st
     action: "INCOME_VOIDED",
     entityType: "IncomeTransaction",
     entityId: income.data.id,
-    details: { reason: input.reason },
+    details: { reason: input.reason, original: { incomeId: income.data.incomeId, ...pick(income.data, INCOME_FIELDS) } },
   });
 }
 
@@ -785,6 +785,355 @@ export async function voidExpense(input: { id: string; reason: string; userId: s
     action: "EXPENSE_VOIDED",
     entityType: "ExpenseTransaction",
     entityId: expense.data.id,
-    details: { reason: input.reason },
+    details: { reason: input.reason, original: { expenseId: expense.data.expenseId, ...pick(expense.data, EXPENSE_FIELDS) } },
   });
+}
+
+const PAYMENT_FIELDS = ["amount", "paymentDate", "paymentMethod", "referenceNumber", "notes"] as const;
+
+function pick<T extends Record<string, unknown>>(row: T, keys: readonly string[]) {
+  return Object.fromEntries(keys.map((key) => [key, row[key] ?? null]));
+}
+
+function assertNotFuture(date: Date) {
+  if (calendarDateFromValue(date) > calendarDateInKarachi()) throw new Error("Date cannot be in the future");
+}
+
+/**
+ * Corrects a student fee payment. Amount, date, method and notes are changed in
+ * place on both the payment and its Income entry. Moving it to another student
+ * or fee month records a new payment first, then deletes (voids) the old one,
+ * so the money is never counted twice and the original stays in history.
+ */
+export async function updateStudentPayment(input: {
+  paymentId: string;
+  amount: number;
+  paymentDate: Date;
+  paymentMethod: PaymentMethod;
+  referenceNumber?: string | null;
+  notes?: string | null;
+  studentId?: string | null;
+  month?: number | null;
+  year?: number | null;
+  userId: string;
+}) {
+  const amount = Math.round(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Payment amount must be greater than zero");
+  assertNotFuture(input.paymentDate);
+
+  const payment = await db()
+    .from("FeePayment")
+    .select("*, feeRecord:FeeRecord(*), income:IncomeTransaction(category)")
+    .eq("id", input.paymentId)
+    .maybeSingle();
+  if (payment.error) throw payment.error;
+  if (!payment.data || !payment.data.feeRecord) throw new Error("Payment not found");
+  if (payment.data.voidedAt) throw new Error("This payment was deleted and cannot be edited");
+  const before = pick(payment.data, PAYMENT_FIELDS);
+  const record = payment.data.feeRecord;
+
+  const studentId = input.studentId || payment.data.studentId;
+  const month = input.month || record.month;
+  const year = input.year || record.year;
+  if (studentId !== payment.data.studentId || month !== record.month || year !== record.year) {
+    const income = Array.isArray(payment.data.income) ? payment.data.income[0] : payment.data.income;
+    const moved = await recordStudentPayment({
+      studentId,
+      amount,
+      paymentDate: input.paymentDate,
+      paymentMethod: input.paymentMethod,
+      referenceNumber: input.referenceNumber,
+      notes: input.notes,
+      month,
+      year,
+      category: income?.category ?? "STUDENT_FEE",
+      userId: input.userId,
+    });
+    await voidStudentPayment({
+      paymentId: payment.data.id,
+      reason: `Moved to ${monthLabel(month, year)}${studentId !== payment.data.studentId ? " for another student" : ""} as ${moved.income.incomeId}`,
+      userId: input.userId,
+    });
+    await writeAudit({
+      userId: input.userId,
+      action: "PAYMENT_EDITED",
+      entityType: "FeePayment",
+      entityId: payment.data.id,
+      details: {
+        before: { ...before, studentId: payment.data.studentId, month: record.month, year: record.year },
+        after: { amount, studentId, month, year, newPaymentId: moved.payment.id, newIncomeId: moved.income.incomeId },
+      },
+    });
+    return { studentIds: [...new Set([payment.data.studentId, studentId])] };
+  }
+
+  // Same month: the new amount may not exceed what is owed once this payment is set aside.
+  const context = await loadFeeRecord(record.id);
+  if (!context) throw new Error("Fee record not found");
+  const others = await db()
+    .from("FeePayment")
+    .select("amount, paymentDate, voidedAt")
+    .eq("feeRecordId", record.id)
+    .neq("id", payment.data.id)
+    .is("voidedAt", null);
+  if (others.error) throw others.error;
+  const policy = await getLateFeePolicy();
+  const withoutThis: FeeRecordWithContext = { ...context, payments: others.data ?? [] };
+  const paidOthers = stateFor(withoutThis, policy).paid;
+  const base = Math.max(0, record.expectedAmount - record.waivedAmount - paidOthers);
+  const fineIfFull = stateFor(withoutThis, policy, [{ amount: base, paymentDate: input.paymentDate }]).fine;
+  const maxAllowed = base + fineIfFull;
+  if (amount > maxAllowed) {
+    throw new Error(`The most that can be paid for ${monthLabel(record.month, record.year)} is Rs. ${maxAllowed.toLocaleString("en-PK")}`);
+  }
+
+  const stamp = nowIso();
+  const changes = {
+    amount,
+    paymentMethod: input.paymentMethod,
+    referenceNumber: input.referenceNumber ?? null,
+    notes: input.notes ?? null,
+    updatedAt: stamp,
+    updatedById: input.userId,
+  };
+  const payUpdate = await db()
+    .from("FeePayment")
+    .update({ ...changes, paymentDate: nowIso(input.paymentDate) })
+    .eq("id", payment.data.id);
+  if (payUpdate.error) throw payUpdate.error;
+  const incomeUpdate = await db()
+    .from("IncomeTransaction")
+    .update({ ...changes, date: nowIso(input.paymentDate) })
+    .eq("id", payment.data.incomeTransactionId);
+  if (incomeUpdate.error) throw incomeUpdate.error;
+  await recalculateFeeRecord(record.id);
+  invalidateFeeMaintenance();
+  await writeAudit({
+    userId: input.userId,
+    action: "PAYMENT_EDITED",
+    entityType: "FeePayment",
+    entityId: payment.data.id,
+    details: {
+      before,
+      after: { ...pick(changes, PAYMENT_FIELDS), paymentDate: nowIso(input.paymentDate) },
+      incomeTransactionId: payment.data.incomeTransactionId,
+    },
+  });
+  return { studentIds: [payment.data.studentId] };
+}
+
+const INCOME_FIELDS = ["date", "amount", "category", "source", "studentId", "classId", "paymentMethod", "referenceNumber", "notes"] as const;
+
+/** Edits an income entry. Student fee income is routed through the fee payment it belongs to. */
+export async function updateIncome(input: {
+  id: string;
+  date: Date;
+  amount: number;
+  category: IncomeCategory;
+  source?: string | null;
+  studentId?: string | null;
+  classId?: string | null;
+  paymentMethod: PaymentMethod;
+  referenceNumber?: string | null;
+  notes?: string | null;
+  month?: number | null;
+  year?: number | null;
+  userId: string;
+}) {
+  const income = await db()
+    .from("IncomeTransaction")
+    .select("*, feePayment:FeePayment(id)")
+    .eq("id", input.id)
+    .maybeSingle();
+  if (income.error) throw income.error;
+  if (!income.data) throw new Error("Income not found");
+  if (income.data.voidedAt) throw new Error("This entry was deleted and cannot be edited");
+
+  const linked = Array.isArray(income.data.feePayment) ? income.data.feePayment[0] : income.data.feePayment;
+  if (linked) {
+    return updateStudentPayment({
+      paymentId: linked.id,
+      amount: input.amount,
+      paymentDate: input.date,
+      paymentMethod: input.paymentMethod,
+      referenceNumber: input.referenceNumber,
+      notes: input.notes,
+      studentId: input.studentId,
+      month: input.month,
+      year: input.year,
+      userId: input.userId,
+    });
+  }
+
+  const amount = Math.round(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Amount must be greater than zero");
+  assertNotFuture(input.date);
+  if (input.category === "STUDENT_FEE" && income.data.category !== "STUDENT_FEE") {
+    throw new Error("Student fees must be recorded with Record fee payment so the fee balance stays correct");
+  }
+
+  let classId = input.classId ?? null;
+  if (input.studentId && !classId) {
+    const student = await db().from("Student").select("classId").eq("id", input.studentId).maybeSingle();
+    if (student.error) throw student.error;
+    classId = student.data?.classId ?? null;
+  }
+  const after = {
+    date: nowIso(input.date),
+    amount,
+    category: input.category,
+    source: input.source ?? null,
+    studentId: input.studentId ?? null,
+    classId,
+    paymentMethod: input.paymentMethod,
+    referenceNumber: input.referenceNumber ?? null,
+    notes: input.notes ?? null,
+  };
+  const { error } = await db()
+    .from("IncomeTransaction")
+    .update({ ...after, updatedAt: nowIso(), updatedById: input.userId })
+    .eq("id", income.data.id);
+  if (error) throw error;
+  await writeAudit({
+    userId: input.userId,
+    action: "INCOME_EDITED",
+    entityType: "IncomeTransaction",
+    entityId: income.data.id,
+    details: { incomeId: income.data.incomeId, before: pick(income.data, INCOME_FIELDS), after },
+  });
+  return { studentIds: [income.data.studentId, input.studentId].filter((id): id is string => Boolean(id)) };
+}
+
+const EXPENSE_FIELDS = ["date", "amount", "category", "paidTo", "paymentMethod", "referenceNumber", "description", "notes"] as const;
+
+/** Edits an expense. Salary payments also update the staff member's salary record. */
+export async function updateExpense(input: {
+  id: string;
+  date: Date;
+  amount: number;
+  category: ExpenseCategory;
+  paidTo: string;
+  paymentMethod: PaymentMethod;
+  referenceNumber?: string | null;
+  description?: string | null;
+  notes?: string | null;
+  userId: string;
+}) {
+  const expense = await db()
+    .from("ExpenseTransaction")
+    .select("*, salaryPayment:SalaryPayment(id, staffId)")
+    .eq("id", input.id)
+    .maybeSingle();
+  if (expense.error) throw expense.error;
+  if (!expense.data) throw new Error("Expense not found");
+  if (expense.data.voidedAt) throw new Error("This entry was deleted and cannot be edited");
+
+  const amount = Math.round(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Amount must be greater than zero");
+  assertNotFuture(input.date);
+  const paidTo = input.paidTo.trim();
+  if (!paidTo) throw new Error("Enter who was paid");
+
+  const linked = Array.isArray(expense.data.salaryPayment) ? expense.data.salaryPayment[0] : expense.data.salaryPayment;
+  if (linked) {
+    const { updateSalaryPayment } = await import("@/lib/salary");
+    await updateSalaryPayment({
+      paymentId: linked.id,
+      amount,
+      paymentDate: input.date,
+      paymentMethod: input.paymentMethod,
+      referenceNumber: input.referenceNumber,
+      notes: input.notes,
+      userId: input.userId,
+    });
+    return { staffId: linked.staffId };
+  }
+
+  const after = {
+    date: nowIso(input.date),
+    amount,
+    category: input.category,
+    paidTo,
+    paymentMethod: input.paymentMethod,
+    referenceNumber: input.referenceNumber ?? null,
+    description: input.description ?? null,
+    notes: input.notes ?? null,
+  };
+  const { error } = await db()
+    .from("ExpenseTransaction")
+    .update({ ...after, updatedAt: nowIso(), updatedById: input.userId })
+    .eq("id", expense.data.id);
+  if (error) throw error;
+  await writeAudit({
+    userId: input.userId,
+    action: "EXPENSE_EDITED",
+    entityType: "ExpenseTransaction",
+    entityId: expense.data.id,
+    details: { expenseId: expense.data.expenseId, before: pick(expense.data, EXPENSE_FIELDS), after },
+  });
+  return { staffId: null };
+}
+
+/**
+ * Changes what a student owes for one fee month (the fee itself, or a discount).
+ * Receivables, outstanding and dashboard totals all read these records, so they
+ * follow automatically.
+ */
+export async function adjustFeeRecord(input: {
+  studentId: string;
+  month: number;
+  year: number;
+  expectedAmount: number;
+  waivedAmount: number;
+  reason: string;
+  userId: string;
+}) {
+  const expected = Math.round(input.expectedAmount);
+  const waived = Math.round(input.waivedAmount);
+  const reason = input.reason.trim();
+  if (!Number.isFinite(expected) || expected < 0) throw new Error("Fee amount cannot be negative");
+  if (!Number.isFinite(waived) || waived < 0) throw new Error("Discount cannot be negative");
+  if (waived > expected) throw new Error("Discount cannot be more than the fee");
+  if (!reason) throw new Error("Enter a reason for the adjustment");
+
+  const created = await ensureStudentFeeRecord({
+    studentId: input.studentId,
+    month: input.month,
+    year: input.year,
+    userId: input.userId,
+    strict: true,
+  });
+  if (!created) throw new Error("Fee record not found");
+  const context = await loadFeeRecord(created.id);
+  if (!context) throw new Error("Fee record not found");
+  const policy = await getLateFeePolicy();
+  const next = stateFor({ ...context, expectedAmount: expected, waivedAmount: waived }, policy);
+  if (next.paid > expected - waived + next.fine) {
+    throw new Error(
+      `Rs. ${next.paid.toLocaleString("en-PK")} is already paid for ${monthLabel(input.month, input.year)}. Edit or delete a payment first.`,
+    );
+  }
+
+  const { error } = await db()
+    .from("FeeRecord")
+    .update({ expectedAmount: expected, waivedAmount: waived, updatedAt: nowIso(), updatedById: input.userId })
+    .eq("id", created.id);
+  if (error) throw error;
+  const synced = await recalculateFeeRecord(created.id);
+  invalidateFeeMaintenance();
+  await writeAudit({
+    userId: input.userId,
+    action: "FEE_ADJUSTED",
+    entityType: "FeeRecord",
+    entityId: created.id,
+    details: {
+      studentId: input.studentId,
+      month: input.month,
+      year: input.year,
+      before: { expectedAmount: context.expectedAmount, waivedAmount: context.waivedAmount, remainingAmount: context.remainingAmount },
+      after: { expectedAmount: expected, waivedAmount: waived, remainingAmount: synced.remainingAmount },
+      reason,
+    },
+  });
+  return synced;
 }

@@ -6,7 +6,8 @@ import { formatDate, formatPKR, fullName, currentMonthYear, toDateInput, monthLa
 import { Card, PageHeader } from "@/components/ui";
 import { EMPLOYMENT_LABELS, FACULTY_TYPE_LABELS, GENDER_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/constants";
 import { FeeBadge } from "@/components/badges";
-import { EditSalaryPaymentButton, RecordSalaryButton, VoidSalaryButton } from "@/components/forms";
+import { EditSalaryPaymentButton, RecordSalaryButton } from "@/components/forms";
+import { DeleteRecordButton } from "@/components/finance-records";
 
 const staffSelect =
   "*, subjects:StaffSubject(*, subject:Subject(*)), assignments:StaffAssignment(*, class:Class(*, program:Program(*))), classTeacherOf:Class!Class_classTeacherId_fkey(*, program:Program(*)), salaryRecords:SalaryRecord(*, payments:SalaryPayment(*))";
@@ -158,7 +159,9 @@ export default async function StaffProfilePage({
                           }}
                         />
                       ) : null}
-                      {can(user.role, "finance.void") ? <VoidSalaryButton id={payment.id} staffId={staff.id} /> : null}
+                      {can(user.role, "finance.void") ? (
+                        <DeleteRecordButton kind="salary" id={payment.id} staffId={staff.id} label={`${formatPKR(payment.amount)} paid on ${formatDate(payment.paymentDate)}`} />
+                      ) : null}
                     </td>
                   </tr>
                 ))}

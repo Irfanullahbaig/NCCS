@@ -12,8 +12,12 @@ function fail(error: string) {
 
 function refreshSalary(staffId?: string) {
   revalidatePath("/");
+  revalidatePath("/finance");
   revalidatePath("/finance/salaries");
+  revalidatePath("/finance/advances");
   revalidatePath("/finance/expenses");
+  revalidatePath("/finance/ledger");
+  revalidatePath("/finance/profit-loss");
   revalidatePath("/staff");
   revalidatePath("/reports");
   if (staffId) revalidatePath(`/staff/${staffId}`);
@@ -90,14 +94,15 @@ export async function voidSalaryPaymentAction(formData: FormData) {
   try {
     const paymentId = String(formData.get("id") ?? "");
     const staffId = String(formData.get("staffId") ?? "");
+    if (!String(formData.get("reason") ?? "").trim()) return fail("Enter a reason for deleting this payment");
     await voidSalaryPayment({
       paymentId,
-      reason: String(formData.get("reason") ?? "Voided by admin").trim() || "Voided by admin",
+      reason: String(formData.get("reason") ?? "").trim(),
       userId: user.id,
     });
     refreshSalary(staffId);
     return { ok: true as const };
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "Unable to void salary payment");
+    return fail(error instanceof Error ? error.message : "Unable to delete salary payment");
   }
 }

@@ -1,17 +1,20 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { periodFromParams } from "@/lib/period";
 import { getReceivables } from "@/lib/receivables";
 import { formatPKR } from "@/lib/utils";
 import { Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import { PeriodFilter } from "@/components/period-filter";
+import { AdjustFeeButton } from "@/components/finance-records";
 
 export default async function ReceivablesPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  await requirePermission("fees.view");
+  const user = await requirePermission("fees.view");
+  const canAdjust = can(user.role, "finance.edit");
   const params = await searchParams;
   // Opens on the whole year so every month owed so far is in view.
   const period = periodFromParams(params.period ? params : { ...params, period: "year" });
@@ -94,6 +97,7 @@ export default async function ReceivablesPage({
                   <th>Received</th>
                   <th>Receivable</th>
                   <th>Months due</th>
+                  {canAdjust ? <th></th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -113,6 +117,16 @@ export default async function ReceivablesPage({
                     <td title={row.dueLabels.join(", ")}>
                       {row.monthsDue ? row.dueLabels.length > 2 ? `${row.monthsDue} months` : row.dueLabels.join(", ") : "—"}
                     </td>
+                    {canAdjust ? (
+                      <td>
+                        <AdjustFeeButton
+                          studentId={row.id}
+                          studentName={row.name}
+                          defaultMonth={row.dueMonths[0]?.month}
+                          defaultYear={row.dueMonths[0]?.year ?? period.year}
+                        />
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>

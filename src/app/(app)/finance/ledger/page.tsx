@@ -1,10 +1,14 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
+import { can } from "@/lib/permissions";
+import { db } from "@/lib/db";
+import { getRecordHistory } from "@/lib/record-history";
 import { getLedgerEntries } from "@/lib/ledger";
 import { periodFromParams } from "@/lib/period";
-import { formatDate, formatPKR } from "@/lib/utils";
+import { formatDate, formatDateTime, formatPKR, fullName } from "@/lib/utils";
 import { Card, EmptyState, Input, PageHeader, Select } from "@/components/ui";
 import { PeriodFilter } from "@/components/period-filter";
+import { DeleteRecordButton, EditExpenseButton, EditIncomeButton } from "@/components/finance-records";
 import { EXPENSE_CATEGORY_LABELS, INCOME_CATEGORY_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/constants";
 
 function typeLabel(type: string) {
@@ -18,7 +22,7 @@ export default async function LedgerPage({
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  await requirePermission("finance.view");
+  const user = await requirePermission("finance.view");
   const params = await searchParams;
   const period = periodFromParams(params);
   const rows = await getLedgerEntries(period, {
@@ -29,6 +33,9 @@ export default async function LedgerPage({
     staffId: params.staffId,
   });
   const selected = rows.find((row) => row.id === params.txn || row.transactionId === params.txn);
+  const manage = selected ? await loadManage(selected.direction, selected.id) : null;
+  const canEdit = can(user.role, "finance.edit");
+  const canDelete = can(user.role, "finance.void");
 
   return (
     <div>
@@ -75,6 +82,50 @@ export default async function LedgerPage({
             <Info label="Status" value={selected.status} />
             <Info label="Notes" value={selected.notes || "—"} />
           </dl>
+          {manage ? (
+            <>
+              {(canEdit || canDelete) && !manage.voided ? (
+                <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+                  {canEdit && manage.income ? <EditIncomeButton income={manage.income} students={manage.students} classes={manage.classes} /> : null}
+                  {canEdit && manage.expense ? <EditExpenseButton expense={manage.expense} /> : null}
+                  {canDelete ? (
+                    <DeleteRecordButton
+                      kind={manage.income ? "income" : "expense"}
+                      id={selected.id}
+                      label={`${selected.transactionId} · ${formatPKR(Math.abs(selected.signedAmount))}`}
+                      linkedFee={Boolean(manage.income?.feePayment)}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+              <div className="mt-5 border-t border-slate-100 pt-4">
+                <h3 className="text-sm font-semibold text-navy">History</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Created by {manage.history.createdBy} on {formatDateTime(manage.history.createdAt)}
+                  {manage.history.editedBy ? ` · last edited by ${manage.history.editedBy} on ${formatDateTime(manage.history.editedAt!)}` : ""}
+                </p>
+                {manage.history.entries.length ? (
+                  <ul className="mt-3 space-y-2">
+                    {manage.history.entries.map((entry) => (
+                      <li key={entry.id} className="rounded-2xl bg-slate-50 p-3 text-xs text-slate-600">
+                        <span className="font-semibold capitalize text-navy">{entry.action}</span> by {entry.user} · {formatDateTime(entry.at)}
+                        {entry.reason ? <div className="mt-1">Reason: {entry.reason}</div> : null}
+                        {entry.changes.length ? (
+                          <ul className="mt-1 space-y-0.5">
+                            {entry.changes.map((change) => (
+                              <li key={change.field}>
+                                {change.field}: <span className="line-through">{change.from}</span> → <span className="font-medium text-navy">{change.to}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            </>
+          ) : null}
         </Card>
       ) : null}
       <div className="overflow-hidden rounded-3xl bg-white shadow-card">
@@ -132,4 +183,80 @@ function Info({ label, value }: { label: string; value: string }) {
       <dd className="mt-1 font-medium text-navy">{value}</dd>
     </div>
   );
+}
+
+/** Full record, edit form data and history for the selected ledger entry. */
+async function loadManage(direction: string, id: string) {
+  if (direction === "income") {
+    const [incomeRes, studentsRes, classesRes] = await Promise.all([
+      db().from("IncomeTransaction").select("*, feePayment:FeePayment(id, studentId, feeRecord:FeeRecord(month, year))").eq("id", id).maybeSingle(),
+      db().from("Student").select("id, firstName, lastName, fatherName, registrationNo, classId, class:Class(name, program:Program(name))").is("deletedAt", null).order("firstName", { ascending: true }),
+      db().from("Class").select("*, program:Program(*)").order("name", { ascending: true }),
+    ]);
+    for (const result of [incomeRes, studentsRes, classesRes]) if (result.error) throw result.error;
+    const row = incomeRes.data;
+    if (!row) return null;
+    const feePayment = Array.isArray(row.feePayment) ? row.feePayment[0] : row.feePayment;
+    return {
+      voided: Boolean(row.voidedAt),
+      history: await getRecordHistory({ entityIds: [row.id, feePayment?.id ?? ""], ...row }),
+      expense: null,
+      income: {
+        id: row.id,
+        incomeId: row.incomeId,
+        date: row.date,
+        amount: row.amount,
+        category: row.category,
+        source: row.source,
+        studentId: row.studentId,
+        classId: row.classId,
+        paymentMethod: row.paymentMethod,
+        referenceNumber: row.referenceNumber,
+        notes: row.notes,
+        feePayment: feePayment?.feeRecord
+          ? { id: feePayment.id, studentId: feePayment.studentId, month: feePayment.feeRecord.month, year: feePayment.feeRecord.year }
+          : null,
+      },
+      students: (studentsRes.data ?? []).map((student) => ({
+        id: student.id,
+        name: fullName(student.firstName, student.lastName),
+        classId: student.classId,
+        fatherName: student.fatherName,
+        registrationNo: student.registrationNo,
+        classLabel: student.class ? `${student.class.name} ${student.class.program?.name ?? ""}` : "",
+      })),
+      classes: (classesRes.data ?? []).map((item) => ({
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        program: item.program.name,
+        feeAmount: item.feeAmount,
+      })),
+    };
+  }
+  const expenseRes = await db().from("ExpenseTransaction").select("*, salaryPayment:SalaryPayment(id)").eq("id", id).maybeSingle();
+  if (expenseRes.error) throw expenseRes.error;
+  const row = expenseRes.data;
+  if (!row) return null;
+  const salary = Array.isArray(row.salaryPayment) ? row.salaryPayment[0] : row.salaryPayment;
+  return {
+    voided: Boolean(row.voidedAt),
+    history: await getRecordHistory({ entityIds: [row.id, salary?.id ?? ""], ...row }),
+    income: null,
+    students: [],
+    classes: [],
+    expense: {
+      id: row.id,
+      expenseId: row.expenseId,
+      date: row.date,
+      amount: row.amount,
+      category: row.category,
+      paidTo: row.paidTo,
+      paymentMethod: row.paymentMethod,
+      referenceNumber: row.referenceNumber,
+      description: row.description,
+      notes: row.notes,
+      salary: Boolean(salary),
+    },
+  };
 }

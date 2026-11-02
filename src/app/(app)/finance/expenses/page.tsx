@@ -4,7 +4,8 @@ import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { formatDate, formatPKR } from "@/lib/utils";
 import { PageHeader, EmptyState, Input, Select, ViewOnlyBadge } from "@/components/ui";
-import { AddExpenseButton, VoidButton } from "@/components/forms";
+import { AddExpenseButton } from "@/components/forms";
+import { DeleteRecordButton, EditExpenseButton } from "@/components/finance-records";
 import { EXPENSE_CATEGORY_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/constants";
 
 export default async function ExpensesPage({
@@ -15,7 +16,7 @@ export default async function ExpensesPage({
   const user = await requirePermission("finance.view");
   const params = await searchParams;
 
-  let expenseQuery = db().from("ExpenseTransaction").select("*").is("voidedAt", null).order("date", { ascending: false });
+  let expenseQuery = db().from("ExpenseTransaction").select("*, salaryPayment:SalaryPayment(id, staffId)").is("voidedAt", null).order("date", { ascending: false });
   if (params.category) expenseQuery = expenseQuery.eq("category", params.category as never);
   if (params.paymentMethod) expenseQuery = expenseQuery.eq("paymentMethod", params.paymentMethod as never);
   const rowsRes = await expenseQuery;
@@ -82,7 +83,30 @@ export default async function ExpensesPage({
                     </td>
                     <td>{PAYMENT_METHOD_LABELS[row.paymentMethod]}</td>
                     <td>{formatPKR(row.amount)}</td>
-                    <td>{can(user.role, "finance.void") ? <VoidButton id={row.id} type="expense" /> : null}</td>
+                    <td>
+                      <div className="flex justify-end gap-1">
+                        {can(user.role, "finance.edit") ? (
+                          <EditExpenseButton
+                            expense={{
+                              id: row.id,
+                              expenseId: row.expenseId,
+                              date: row.date,
+                              amount: row.amount,
+                              category: row.category,
+                              paidTo: row.paidTo,
+                              paymentMethod: row.paymentMethod,
+                              referenceNumber: row.referenceNumber,
+                              description: row.description,
+                              notes: row.notes,
+                              salary: Boolean(salaryOf(row)),
+                            }}
+                          />
+                        ) : null}
+                        {can(user.role, "finance.void") ? (
+                          <DeleteRecordButton kind="expense" id={row.id} label={`${row.expenseId} · ${formatPKR(row.amount)}`} staffId={salaryOf(row)?.staffId} />
+                        ) : null}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -94,4 +118,8 @@ export default async function ExpensesPage({
       </div>
     </div>
   );
+}
+
+function salaryOf(row: { salaryPayment?: { id: string; staffId: string } | Array<{ id: string; staffId: string }> | null }) {
+  return Array.isArray(row.salaryPayment) ? row.salaryPayment[0] : row.salaryPayment;
 }

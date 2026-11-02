@@ -4,7 +4,8 @@ import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
 import { formatDate, formatPKR, fullName } from "@/lib/utils";
 import { PageHeader, EmptyState, Input, Select, ViewOnlyBadge } from "@/components/ui";
-import { AddIncomeButton, VoidButton } from "@/components/forms";
+import { AddIncomeButton } from "@/components/forms";
+import { DeleteRecordButton, EditIncomeButton } from "@/components/finance-records";
 import { INCOME_CATEGORY_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/constants";
 
 export default async function IncomePage({
@@ -17,7 +18,7 @@ export default async function IncomePage({
 
   let incomeQuery = db()
     .from("IncomeTransaction")
-    .select("*, student:Student(*), class:Class(*, program:Program(*))")
+    .select("*, student:Student(*), class:Class(*, program:Program(*)), feePayment:FeePayment(id, studentId, feeRecord:FeeRecord(month, year))")
     .order("date", { ascending: false });
   if (params.includeVoided !== "1") incomeQuery = incomeQuery.is("voidedAt", null);
   if (params.category) incomeQuery = incomeQuery.eq("category", params.category as never);
@@ -55,6 +56,23 @@ export default async function IncomePage({
   });
   const students = studentsRes.data ?? [];
   const classes = classesRes.data ?? [];
+  const studentOptions = students.map((student) => ({
+    id: student.id,
+    name: `${fullName(student.firstName, student.lastName)}`,
+    classId: student.classId,
+    fatherName: student.fatherName,
+    registrationNo: student.registrationNo,
+    classLabel: `${student.class.name} ${student.class.program.name}`,
+  }));
+  const classOptions = classes.map((item) => ({
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    program: item.program.name,
+    feeAmount: item.feeAmount,
+  }));
+  const canEdit = can(user.role, "finance.edit");
+  const canDelete = can(user.role, "finance.void");
 
   return (
     <div>
@@ -63,24 +81,7 @@ export default async function IncomePage({
         subtitle="Student fee income automatically updates the student fee record, class dashboard, and outstanding balance."
         actions={
           can(user.role, "finance.create") ? (
-            <AddIncomeButton
-              autoOpenOn="new"
-              students={students.map((student) => ({
-                id: student.id,
-                name: `${fullName(student.firstName, student.lastName)}`,
-                classId: student.classId,
-                fatherName: student.fatherName,
-                registrationNo: student.registrationNo,
-                classLabel: `${student.class.name} ${student.class.program.name}`,
-              }))}
-              classes={classes.map((item) => ({
-                id: item.id,
-                name: item.name,
-                category: item.category,
-                program: item.program.name,
-                feeAmount: item.feeAmount,
-              }))}
-            />
+            <AddIncomeButton autoOpenOn="new" students={studentOptions} classes={classOptions} />
           ) : (
             <ViewOnlyBadge />
           )
@@ -120,7 +121,9 @@ export default async function IncomePage({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {rows.map((row) => {
+                  const feePayment = Array.isArray(row.feePayment) ? row.feePayment[0] : row.feePayment;
+                  return (
                   <tr key={row.id} className={row.voidedAt ? "opacity-50" : ""}>
                     <td>
                       <Link href={`/finance/ledger?txn=${encodeURIComponent(row.incomeId)}`} className="font-medium text-navy">
@@ -141,10 +144,41 @@ export default async function IncomePage({
                     <td>{PAYMENT_METHOD_LABELS[row.paymentMethod]}</td>
                     <td>{formatPKR(row.amount)}</td>
                     <td>
-                      {!row.voidedAt && can(user.role, "finance.void") ? <VoidButton id={row.id} type="income" /> : row.voidedAt ? "Voided" : null}
+                      {row.voidedAt ? (
+                        <span className="text-xs text-slate-500" title={row.voidReason ?? undefined}>Deleted</span>
+                      ) : (
+                        <div className="flex justify-end gap-1">
+                          {canEdit ? (
+                            <EditIncomeButton
+                              students={studentOptions}
+                              classes={classOptions}
+                              income={{
+                                id: row.id,
+                                incomeId: row.incomeId,
+                                date: row.date,
+                                amount: row.amount,
+                                category: row.category,
+                                source: row.source,
+                                studentId: row.studentId,
+                                classId: row.classId,
+                                paymentMethod: row.paymentMethod,
+                                referenceNumber: row.referenceNumber,
+                                notes: row.notes,
+                                feePayment: feePayment?.feeRecord
+                                  ? { id: feePayment.id, studentId: feePayment.studentId, month: feePayment.feeRecord.month, year: feePayment.feeRecord.year }
+                                  : null,
+                              }}
+                            />
+                          ) : null}
+                          {canDelete ? (
+                            <DeleteRecordButton kind="income" id={row.id} label={`${row.incomeId} · ${formatPKR(row.amount)}`} linkedFee={Boolean(feePayment)} />
+                          ) : null}
+                        </div>
+                      )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

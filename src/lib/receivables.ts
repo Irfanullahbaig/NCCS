@@ -28,6 +28,7 @@ export type ReceivableStudent = {
   monthsDue: number;
   /** Fee months that still have a balance, oldest first. */
   dueLabels: string[];
+  dueMonths: Array<{ month: number; year: number }>;
 };
 
 function periodMonths(period: ResolvedPeriod) {
@@ -105,6 +106,7 @@ export async function getReceivables(period: ResolvedPeriod) {
       receivable: 0,
       monthsDue: 0,
       dueLabels: [],
+      dueMonths: [],
     };
 
     for (const { year, month, key } of months) {
@@ -127,6 +129,7 @@ export async function getReceivables(period: ResolvedPeriod) {
       if (receivable > 0) {
         row.monthsDue += 1;
         row.dueLabels.push(monthLabel(month, year));
+        row.dueMonths.push({ month, year });
       }
       const bucket = byMonth.get(key)!;
       bucket.expected += expected;

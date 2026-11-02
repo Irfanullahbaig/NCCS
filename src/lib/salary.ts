@@ -351,7 +351,23 @@ export async function updateSalaryPayment(input: {
     action: "SALARY_PAYMENT_EDITED",
     entityType: "SalaryPayment",
     entityId: payment.data.id,
-    details: { amount },
+    details: {
+      before: {
+        amount: payment.data.amount,
+        paymentDate: payment.data.paymentDate,
+        paymentMethod: payment.data.paymentMethod,
+        referenceNumber: payment.data.referenceNumber,
+        notes: payment.data.notes,
+      },
+      after: {
+        amount,
+        paymentDate: nowIso(input.paymentDate),
+        paymentMethod: input.paymentMethod,
+        referenceNumber: input.referenceNumber ?? null,
+        notes: input.notes ?? null,
+      },
+      expenseTransactionId: payment.data.expenseTransactionId,
+    },
   });
   return { ok: true as const, id: payment.data.id };
 }

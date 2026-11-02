@@ -9,6 +9,7 @@ import { Card, PageHeader, Select } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
 import { EditStudentButton, RecordPaymentButton } from "@/components/forms";
 import { LateFeeCell } from "@/components/late-fee";
+import { AdjustFeeButton, DeleteRecordButton, EditFeePaymentButton } from "@/components/finance-records";
 import { PAYMENT_METHOD_LABELS } from "@/lib/constants";
 
 export default async function StudentProfilePage({
@@ -29,6 +30,9 @@ export default async function StudentProfilePage({
     ? student.feeRecords.filter((record) => record.year === yearFilter)
     : student.feeRecords;
   const years = [...new Set(student.feeRecords.map((record) => record.year))].sort((a, b) => b - a);
+  const canEditFinance = can(user.role, "finance.edit");
+  const canDeleteFinance = can(user.role, "finance.void");
+  const studentName = fullName(student.firstName, student.lastName);
 
   const classesRes = await db().from("Class").select("*, program:Program(*)").eq("status", "ACTIVE");
   if (classesRes.error) throw classesRes.error;
@@ -129,6 +133,7 @@ export default async function StudentProfilePage({
                       <th>Payment date</th>
                       <th>Method</th>
                       <th>Receipt</th>
+                      {canEditFinance ? <th></th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -155,6 +160,11 @@ export default async function StudentProfilePage({
                           <td>{last ? formatDate(last.paymentDate) : "—"}</td>
                           <td>{last ? PAYMENT_METHOD_LABELS[last.paymentMethod] : "—"}</td>
                           <td>{last?.referenceNumber || "—"}</td>
+                          {canEditFinance ? (
+                            <td>
+                              <AdjustFeeButton studentId={student.id} studentName={studentName} defaultMonth={record.month} defaultYear={record.year} />
+                            </td>
+                          ) : null}
                         </tr>
                       );
                     })}
@@ -177,6 +187,7 @@ export default async function StudentProfilePage({
                       <th>Reference</th>
                       <th>Period</th>
                       <th>Status</th>
+                      {canEditFinance || canDeleteFinance ? <th></th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -188,6 +199,35 @@ export default async function StudentProfilePage({
                         <td>{payment.referenceNumber || "—"}</td>
                         <td>{monthLabel(payment.feeRecord.month, payment.feeRecord.year)}</td>
                         <td><FeeBadge status={payment.feeRecord.status} /></td>
+                        {canEditFinance || canDeleteFinance ? (
+                          <td>
+                            <div className="flex justify-end gap-1">
+                              {canEditFinance ? (
+                                <EditFeePaymentButton
+                                  payment={{
+                                    id: payment.id,
+                                    amount: payment.amount,
+                                    paymentDate: payment.paymentDate,
+                                    paymentMethod: payment.paymentMethod,
+                                    referenceNumber: payment.referenceNumber,
+                                    notes: payment.notes,
+                                    studentId: student.id,
+                                    month: payment.feeRecord.month,
+                                    year: payment.feeRecord.year,
+                                  }}
+                                />
+                              ) : null}
+                              {canDeleteFinance ? (
+                                <DeleteRecordButton
+                                  kind="income"
+                                  id={payment.incomeTransactionId}
+                                  label={`${formatPKR(payment.amount)} paid on ${formatDate(payment.paymentDate)} for ${monthLabel(payment.feeRecord.month, payment.feeRecord.year)}`}
+                                  linkedFee
+                                />
+                              ) : null}
+                            </div>
+                          </td>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>

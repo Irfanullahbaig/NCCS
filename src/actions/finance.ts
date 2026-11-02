@@ -5,10 +5,14 @@ import { ExpenseCategory, IncomeCategory, PaymentMethod } from "@/lib/enums";
 import { requirePermission } from "@/lib/auth";
 import { parseDateInput } from "@/lib/utils";
 import {
+  adjustFeeRecord,
   recordExpense,
   recordIncome,
   recordStudentPayment,
   setLateFeeWaiver,
+  updateExpense,
+  updateIncome,
+  updateStudentPayment,
   voidExpense,
   voidIncome,
 } from "@/lib/finance";
@@ -26,11 +30,33 @@ function refreshFinance() {
   revalidatePath("/finance/outstanding");
   revalidatePath("/finance/receivables");
   revalidatePath("/students");
+  revalidatePath("/students/[id]", "page");
+  revalidatePath("/staff/[id]", "page");
   revalidatePath("/classes");
+  revalidatePath("/classes/[id]", "page");
+  revalidatePath("/finance/salaries");
   revalidatePath("/finance/ledger");
   revalidatePath("/finance/profit-loss");
   revalidatePath("/finance/advances");
   revalidatePath("/reports");
+}
+
+function refreshPeople(studentIds: Array<string | null | undefined> = [], staffId?: string | null) {
+  for (const id of studentIds) if (id) revalidatePath(`/students/${id}`);
+  if (staffId) {
+    revalidatePath("/finance/salaries");
+    revalidatePath(`/staff/${staffId}`);
+  }
+}
+
+function text(formData: FormData, key: string) {
+  return String(formData.get(key) ?? "").trim();
+}
+
+function voidReason(formData: FormData) {
+  const reason = text(formData, "reason");
+  if (!reason) throw new Error("Enter a reason for deleting this record");
+  return reason;
 }
 
 export async function recordPaymentAction(formData: FormData) {
@@ -168,13 +194,13 @@ export async function voidIncomeAction(formData: FormData) {
   try {
     await voidIncome({
       id: String(formData.get("id") ?? ""),
-      reason: String(formData.get("reason") ?? "Voided by admin").trim() || "Voided by admin",
+      reason: voidReason(formData),
       userId: user.id,
     });
     refreshFinance();
     return { ok: true as const };
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "Unable to void income");
+    return fail(error instanceof Error ? error.message : "Unable to delete income");
   }
 }
 
@@ -183,13 +209,13 @@ export async function voidExpenseAction(formData: FormData) {
   try {
     await voidExpense({
       id: String(formData.get("id") ?? ""),
-      reason: String(formData.get("reason") ?? "Voided by admin").trim() || "Voided by admin",
+      reason: voidReason(formData),
       userId: user.id,
     });
     refreshFinance();
     return { ok: true as const };
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "Unable to void expense");
+    return fail(error instanceof Error ? error.message : "Unable to delete expense");
   }
 }
 
@@ -223,5 +249,112 @@ export async function restoreLateFeeAction(formData: FormData) {
     return { ok: true as const };
   } catch (error) {
     return fail(error instanceof Error ? error.message : "Unable to restore the late fee");
+  }
+}
+
+export async function updateIncomeAction(formData: FormData) {
+  const user = await requirePermission("finance.edit");
+  try {
+    const date = text(formData, "date");
+    const paymentMethod = text(formData, "paymentMethod") as PaymentMethod;
+    const category = text(formData, "category") as IncomeCategory;
+    if (!date || !paymentMethod || !category) return fail("Date, category, and payment method are required");
+    const result = await updateIncome({
+      id: text(formData, "id"),
+      date: parseDateInput(date),
+      amount: Number(formData.get("amount") ?? 0),
+      category,
+      source: text(formData, "source") || null,
+      studentId: text(formData, "studentId") || null,
+      classId: text(formData, "classId") || null,
+      paymentMethod,
+      referenceNumber: text(formData, "referenceNumber") || null,
+      notes: text(formData, "notes") || null,
+      month: Number(formData.get("month") ?? 0) || null,
+      year: Number(formData.get("year") ?? 0) || null,
+      userId: user.id,
+    });
+    refreshFinance();
+    refreshPeople(result.studentIds);
+    return { ok: true as const };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "Unable to update income");
+  }
+}
+
+export async function updateFeePaymentAction(formData: FormData) {
+  const user = await requirePermission("finance.edit");
+  try {
+    const paymentDate = text(formData, "paymentDate");
+    const paymentMethod = text(formData, "paymentMethod") as PaymentMethod;
+    if (!paymentDate || !paymentMethod) return fail("Payment date and method are required");
+    const result = await updateStudentPayment({
+      paymentId: text(formData, "id"),
+      amount: Number(formData.get("amount") ?? 0),
+      paymentDate: parseDateInput(paymentDate),
+      paymentMethod,
+      referenceNumber: text(formData, "referenceNumber") || null,
+      notes: text(formData, "notes") || null,
+      studentId: text(formData, "studentId") || null,
+      month: Number(formData.get("month") ?? 0) || null,
+      year: Number(formData.get("year") ?? 0) || null,
+      userId: user.id,
+    });
+    refreshFinance();
+    refreshPeople(result.studentIds);
+    return { ok: true as const };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "Unable to update payment");
+  }
+}
+
+export async function updateExpenseAction(formData: FormData) {
+  const user = await requirePermission("finance.edit");
+  try {
+    const date = text(formData, "date");
+    const paymentMethod = text(formData, "paymentMethod") as PaymentMethod;
+    const category = text(formData, "category") as ExpenseCategory;
+    if (!date || !paymentMethod || !category) return fail("Date, category, and payment method are required");
+    const result = await updateExpense({
+      id: text(formData, "id"),
+      date: parseDateInput(date),
+      amount: Number(formData.get("amount") ?? 0),
+      category,
+      paidTo: text(formData, "paidTo"),
+      paymentMethod,
+      referenceNumber: text(formData, "referenceNumber") || null,
+      description: text(formData, "description") || null,
+      notes: text(formData, "notes") || null,
+      userId: user.id,
+    });
+    refreshFinance();
+    refreshPeople([], result.staffId);
+    return { ok: true as const };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "Unable to update expense");
+  }
+}
+
+export async function adjustFeeAction(formData: FormData) {
+  const user = await requirePermission("finance.edit");
+  try {
+    const studentId = text(formData, "studentId");
+    const month = Number(formData.get("month") ?? 0);
+    const year = Number(formData.get("year") ?? 0);
+    if (!studentId || month < 1 || month > 12 || !year) return fail("Select the student and fee month");
+    await adjustFeeRecord({
+      studentId,
+      month,
+      year,
+      expectedAmount: Number(formData.get("expectedAmount") ?? NaN),
+      waivedAmount: Number(formData.get("waivedAmount") || 0),
+      reason: text(formData, "reason"),
+      userId: user.id,
+    });
+    refreshFinance();
+    refreshPeople([studentId]);
+    return { ok: true as const };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "Unable to adjust the fee");
   }
 }

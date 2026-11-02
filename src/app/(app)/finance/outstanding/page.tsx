@@ -8,6 +8,7 @@ import { PageHeader, EmptyState, ViewOnlyBadge } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
 import { RecordPaymentButton } from "@/components/forms";
 import { LateFeeCell } from "@/components/late-fee";
+import { AdjustFeeButton } from "@/components/finance-records";
 
 export default async function OutstandingPage() {
   const user = await requirePermission("fees.view");
@@ -59,6 +60,7 @@ export default async function OutstandingPage() {
                   <th>Fine</th>
                   <th>Due</th>
                   <th>Status</th>
+                  {can(user.role, "finance.edit") ? <th></th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -84,6 +86,16 @@ export default async function OutstandingPage() {
                     </td>
                     <td>{formatDate(record.dueDate)}</td>
                     <td><FeeBadge status={record.status} /></td>
+                    {can(user.role, "finance.edit") ? (
+                      <td>
+                        <AdjustFeeButton
+                          studentId={record.student.id}
+                          studentName={fullName(record.student.firstName, record.student.lastName)}
+                          defaultMonth={record.month}
+                          defaultYear={record.year}
+                        />
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>

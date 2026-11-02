@@ -5,8 +5,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Search, X } from "lucide-react";
 import { createClass, createProgram, createSubject, deleteClass, deleteSubject, updateClass, updateSubject } from "@/actions/classes";
-import { createExpenseAction, createIncomeAction, recordPaymentAction, voidExpenseAction, voidIncomeAction } from "@/actions/finance";
-import { recordSalaryPaymentAction, updateSalaryPaymentAction, voidSalaryPaymentAction } from "@/actions/salary";
+import { createExpenseAction, createIncomeAction, recordPaymentAction } from "@/actions/finance";
+import { recordSalaryPaymentAction, updateSalaryPaymentAction } from "@/actions/salary";
 import { createStaff, updateStaff } from "@/actions/staff";
 import { createStudent, deleteStudent, updateStudent } from "@/actions/students";
 import { createUserAction } from "@/actions/users";
@@ -150,7 +150,8 @@ export function Modal({
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-navy/40 p-3 backdrop-blur-sm sm:items-center sm:p-4">
+    // whitespace-normal: dialogs opened from a table row would otherwise inherit the cells' nowrap.
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto whitespace-normal bg-navy/40 p-3 text-left backdrop-blur-sm sm:items-center sm:p-4">
       <div className="w-full max-w-3xl rounded-3xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6">
           <h3 className="text-lg font-semibold text-navy">{title}</h3>
@@ -192,9 +193,9 @@ export function useSubmit() {
   return { error, pending, submit, setError };
 }
 
-type ClassOption = { id: string; name: string; category?: string | null; program: string; feeAmount: number };
+export type ClassOption = { id: string; name: string; category?: string | null; program: string; feeAmount: number };
 type SubjectOption = { id: string; name: string };
-type StudentOption = {
+export type StudentOption = {
   id: string;
   name: string;
   classId: string;
@@ -211,11 +212,11 @@ function studentSearchText(student: StudentOption) {
     .toLowerCase();
 }
 
-function classOptionLabel(item: ClassOption) {
+export function classOptionLabel(item: ClassOption) {
   return `${item.name}${item.category ? ` — ${item.category}` : ""} — ${item.program}`;
 }
 
-function StudentSearchField({
+export function StudentSearchField({
   students,
   value,
   onChange,
@@ -896,7 +897,7 @@ export function ExpenseForm({ open, onClose }: { open: boolean; onClose: () => v
   );
 }
 
-type FeeMonthState = {
+export type FeeMonthState = {
   month: number;
   year: number;
   label: string;
@@ -927,7 +928,7 @@ function dueOnDate(state: FeeMonthState, paymentDate: string) {
   return { base, fine: Math.max(0, Math.min(fine, state.expected + fine - state.waived - state.paid - base)) };
 }
 
-function useFeeMonths(studentId: string, year: number) {
+export function useFeeMonths(studentId: string, year: number) {
   const key = studentId && year >= 2000 ? `${studentId}:${year}` : "";
   const [result, setResult] = useState<{ key: string; months: FeeMonthState[]; error: string | null } | null>(null);
   useEffect(() => {
@@ -1354,33 +1355,6 @@ export function DeleteStudentButton({ id, name }: { id: string; name: string }) 
   );
 }
 
-export function VoidButton({
-  id,
-  type,
-}: {
-  id: string;
-  type: "income" | "expense";
-}) {
-  const { pending, submit } = useSubmit();
-  return (
-    <Button
-      size="sm"
-      variant="ghost"
-      disabled={pending}
-      onClick={async () => {
-        const reason = prompt("Void reason") || "";
-        if (!reason) return;
-        const formData = new FormData();
-        formData.set("id", id);
-        formData.set("reason", reason);
-        await submit(type === "income" ? voidIncomeAction : voidExpenseAction, formData, "Transaction voided");
-      }}
-    >
-      Void
-    </Button>
-  );
-}
-
 export function EditSubjectButton({ initial }: { initial: { id: string; name: string; code: string } }) {
   const [open, setOpen] = useState(false);
   return (
@@ -1635,27 +1609,5 @@ export function EditSalaryPaymentButton({
         initial={initial}
       />
     </>
-  );
-}
-
-export function VoidSalaryButton({ id, staffId }: { id: string; staffId: string }) {
-  const { pending, submit } = useSubmit();
-  return (
-    <Button
-      size="sm"
-      variant="ghost"
-      disabled={pending}
-      onClick={async () => {
-        const reason = prompt("Void reason") || "";
-        if (!reason) return;
-        const formData = new FormData();
-        formData.set("id", id);
-        formData.set("staffId", staffId);
-        formData.set("reason", reason);
-        await submit(voidSalaryPaymentAction, formData, "Salary payment voided");
-      }}
-    >
-      Void
-    </Button>
   );
 }
