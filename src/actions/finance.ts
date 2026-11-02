@@ -24,6 +24,7 @@ function refreshFinance() {
   revalidatePath("/finance/expenses");
   revalidatePath("/finance/fees");
   revalidatePath("/finance/outstanding");
+  revalidatePath("/finance/receivables");
   revalidatePath("/students");
   revalidatePath("/classes");
   revalidatePath("/finance/ledger");

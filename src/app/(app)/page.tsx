@@ -16,6 +16,7 @@ import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { getBoardOverview, type Insight, type InsightTone } from "@/lib/board";
 import { getDashboardData } from "@/lib/queries";
+import { getReceivables } from "@/lib/receivables";
 import { periodFromParams } from "@/lib/period";
 import { getSchoolName } from "@/lib/school";
 import { cn, formatDate, formatPKR, fullName, MONTH_NAMES } from "@/lib/utils";
@@ -34,10 +35,12 @@ export default async function DashboardPage({
   const period = periodFromParams({ ...params, period: params.period === "year" ? "year" : "month" });
   const showFinance = can(user.role, "finance.analytics");
   const showPayroll = can(user.role, "salaries.view");
-  const [board, recent, schoolName] = await Promise.all([
+  const showReceivables = can(user.role, "fees.view");
+  const [board, recent, schoolName, receivables] = await Promise.all([
     getBoardOverview(period, { finance: showFinance, payroll: showPayroll }),
     getDashboardData(),
     getSchoolName(),
+    showReceivables ? getReceivables(period) : null,
   ]);
   const { students, staff, classes, fees, finance, payroll } = board;
   const month = period.month ?? new Date().getMonth() + 1;
@@ -174,6 +177,40 @@ export default async function DashboardPage({
           )}
         </div>
       </Card>
+
+      {/* Receivables */}
+      {receivables ? (
+        <Card
+          title="Receivables"
+          subtitle={`Expected fees from all enrolled students ${scope}, split into what is received and what is still owed`}
+          action={<Link href={`/finance/receivables?period=${period.mode}&month=${month}&year=${period.year}`} className="text-sm font-medium text-orange">View details</Link>}
+        >
+          <div className="grid gap-3 sm:grid-cols-3">
+            <MoneyTile
+              label="Expected income"
+              value={receivables.expected}
+              note={`${receivables.enrolledStudents} enrolled students at their fixed fee`}
+              href={`/finance/receivables?period=${period.mode}&month=${month}&year=${period.year}`}
+            />
+            <MoneyTile
+              label="Received (in Income)"
+              value={receivables.received}
+              note={`${receivables.rate}% of expected`}
+              tone="good"
+              href="/finance/income?category=STUDENT_FEE"
+            />
+            <MoneyTile
+              label="Receivables"
+              value={receivables.receivable}
+              note={`${receivables.studentsOwing} student${receivables.studentsOwing === 1 ? "" : "s"} still owe`}
+              tone="bad"
+              highlight
+              href={`/finance/receivables?period=${period.mode}&month=${month}&year=${period.year}`}
+            />
+          </div>
+          <Bar value={receivables.received} total={receivables.expected} color={SERIES.green} />
+        </Card>
+      ) : null}
 
       {/* Finance chart + insights */}
       <div className="grid gap-5 xl:grid-cols-3">

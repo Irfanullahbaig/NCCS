@@ -20,6 +20,7 @@ export const NAV_PAGES: NavPage[] = [
   { href: "/finance", section: "Finance", label: "Finance overview", permission: "finance.view", keywords: ["money", "accounts", "analytics"] },
   { href: "/finance/fees", section: "Finance", label: "Student Fees", permission: "fees.view", indent: true, keywords: ["fee", "fees", "tuition", "late fee", "fine", "payment", "collect"] },
   { href: "/finance/outstanding", section: "Finance", label: "Fee collection / outstanding", permission: "fees.view", indent: true, keywords: ["fees", "defaulters", "dues", "unpaid", "pending", "overdue", "balance"] },
+  { href: "/finance/receivables", section: "Finance", label: "Receivables", permission: "fees.view", indent: true, keywords: ["receivable", "expected income", "due", "owed", "unpaid", "balance", "accounts receivable"] },
   { href: "/finance/income", section: "Finance", label: "Income", permission: "finance.view", indent: true, keywords: ["receipts", "revenue", "earning"] },
   { href: "/finance/expenses", section: "Finance", label: "Expenses", permission: "finance.view", indent: true, keywords: ["spending", "bills", "utilities", "rent"] },
   { href: "/finance/salaries", section: "Finance", label: "Payroll", permission: "salaries.view", indent: true, keywords: ["salary", "salaries", "pay", "wages"] },
