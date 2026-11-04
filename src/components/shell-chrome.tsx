@@ -29,6 +29,7 @@ import {
 import type { Role } from "@/lib/enums";
 import { can } from "@/lib/permissions";
 import { NAV_PAGES, type NavSection } from "@/lib/navigation";
+import { SCHOOL_NAME } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/logo";
 
@@ -95,7 +96,7 @@ export function ShellChrome({
         <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-5">
           <div className="min-w-0">
             <BrandLogo />
-            {schoolName && schoolName !== "NCCS" ? (
+            {schoolName && schoolName !== SCHOOL_NAME ? (
               <p className="mt-1.5 truncate text-xs text-slate-500">{schoolName}</p>
             ) : null}
           </div>

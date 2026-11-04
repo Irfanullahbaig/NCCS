@@ -20,7 +20,7 @@ import { getReceivables } from "@/lib/receivables";
 import { periodFromParams } from "@/lib/period";
 import { getSchoolName } from "@/lib/school";
 import { cn, formatDate, formatPKR, fullName, MONTH_NAMES } from "@/lib/utils";
-import { PAYMENT_METHOD_LABELS } from "@/lib/constants";
+import { PAYMENT_METHOD_LABELS, SCHOOL_NAME } from "@/lib/constants";
 import { Card, Segmented, StatCard } from "@/components/ui";
 import { ClassDistributionChart, EnrollmentChart, FinanceTrendChart, SERIES } from "@/components/board-charts";
 
@@ -365,7 +365,7 @@ export default async function DashboardPage({
           )}
           <p className="mt-3 flex items-start gap-2 text-xs text-slate-500">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            Exam marks are not recorded in NCCS yet, so grades and pass rates are not shown. Once results are entered, class performance can be added here.
+            Exam marks are not recorded in {SCHOOL_NAME} yet, so grades and pass rates are not shown. Once results are entered, class performance can be added here.
           </p>
         </Card>
         <Card title="Attendance" subtitle="Students and staff">
@@ -375,7 +375,7 @@ export default async function DashboardPage({
             </span>
             <p className="mt-3 text-sm font-semibold text-navy">Attendance is not tracked yet</p>
             <p className="mt-1 max-w-xs text-xs text-slate-500">
-              NCCS does not record daily attendance today, so no rates are shown rather than made-up numbers. When attendance is added, student and staff attendance rates will appear here.
+              {SCHOOL_NAME} does not record daily attendance today, so no rates are shown rather than made-up numbers. When attendance is added, student and staff attendance rates will appear here.
             </p>
           </div>
         </Card>

@@ -7,7 +7,7 @@ import { listBackups, ensureWeeklyBackup } from "@/lib/backup";
 import { BackupActions } from "@/components/backup-forms";
 import { LateFeeSettingsForm } from "@/components/late-fee";
 import { getLateFeePolicy } from "@/lib/finance";
-import { LATE_FEE_AMOUNT, LATE_FEE_DAY } from "@/lib/constants";
+import { LATE_FEE_AMOUNT, LATE_FEE_DAY, SCHOOL_NAME } from "@/lib/constants";
 
 export default async function SettingsPage() {
   await requirePermission("settings.manage");
@@ -27,7 +27,7 @@ export default async function SettingsPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="School profile">
           <form action={saveSettingsForm} className="grid gap-4">
-            <Field label="School name"><Input name="schoolName" defaultValue={map.schoolName ?? "NCCS"} /></Field>
+            <Field label="School name"><Input name="schoolName" defaultValue={map.schoolName ?? SCHOOL_NAME} /></Field>
             <Field label="Address"><Input name="schoolAddress" defaultValue={map.schoolAddress ?? ""} /></Field>
             <Field label="Phone"><Input name="schoolPhone" defaultValue={map.schoolPhone ?? ""} /></Field>
             <Field label="Currency prefix"><Input name="currencyPrefix" defaultValue={map.currencyPrefix ?? "Rs."} /></Field>

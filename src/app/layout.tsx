@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import Script from "next/script";
 import { Toaster } from "sonner";
+import { SCHOOL_NAME } from "@/lib/constants";
 import "./globals.css";
 
 const ADSENSE_CLIENT = "ca-pub-4776782188995552";
@@ -17,7 +18,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NCCS School Management",
+  title: `${SCHOOL_NAME} School Management`,
   description: "School and college management dashboard for staff, students, classes, and finances.",
   other: {
     "google-adsense-account": ADSENSE_CLIENT,
