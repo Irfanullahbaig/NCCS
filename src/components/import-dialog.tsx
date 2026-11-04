@@ -16,6 +16,8 @@ import {
   type ImportType,
   type PreviewStatus,
 } from "@/lib/import/specs";
+import { readImportRows } from "@/lib/import/csv";
+import { IMPORT_ACCEPT, IMPORT_EXTENSIONS, IMPORT_FORMATS, IMPORT_MAX_FILE_BYTES, fileExtension, readImportFile, type ImportSheet } from "@/lib/import/files";
 import { cn, toCsv } from "@/lib/utils";
 
 function downloadCsv(name: string, rows: Array<Array<unknown>>) {
@@ -29,7 +31,14 @@ function downloadCsv(name: string, rows: Array<Array<unknown>>) {
   URL.revokeObjectURL(url);
 }
 
-const baseName = (fileName: string) => fileName.replace(/\.csv$/i, "");
+async function downloadXlsx(name: string, rows: Array<Array<unknown>>) {
+  const XLSX = await import("xlsx");
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), "Import");
+  XLSX.writeFile(workbook, name);
+}
+
+const baseName = (fileName: string) => fileName.replace(/\.[a-z0-9]+$/i, "");
 
 async function send(body: Record<string, string>) {
   const response = await fetch("/api/import", {
@@ -70,11 +79,11 @@ function Tile({ label, value, tone }: { label: string; value: number; tone?: "go
 }
 
 /** "Import" button with template download, server-checked preview, and results. */
-export function ImportButton({ types, label = "Import CSV" }: { types: ImportType[]; label?: string }) {
+export function ImportButton({ types, label = "Import" }: { types: ImportType[]; label?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<ImportType>(types[0]);
-  const [file, setFile] = useState<{ name: string; text: string } | null>(null);
+  const [file, setFile] = useState<{ name: string; sheets: ImportSheet[]; sheet: number } | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [filter, setFilter] = useState<PreviewStatus | "all">("all");
@@ -102,17 +111,41 @@ export function ImportButton({ types, label = "Import CSV" }: { types: ImportTyp
   async function choose(chosen: File | undefined) {
     setError(null);
     if (!chosen) return;
-    if (!/\.csv$/i.test(chosen.name)) return setError("Choose a .csv file. In Excel use File → Save As → CSV UTF-8.");
-    if (chosen.size > IMPORT_MAX_BYTES) return setError(`The file is larger than ${Math.round(IMPORT_MAX_BYTES / 1024)} KB. Split it into smaller files.`);
-    const text = await chosen.text();
-    setFile({ name: chosen.name, text });
+    if (!IMPORT_EXTENSIONS.includes(fileExtension(chosen.name))) {
+      return setError("This file type cannot be imported. Choose a CSV, Excel, OpenDocument, PDF or tab-separated text file.");
+    }
+    const limit = fileExtension(chosen.name) === "csv" ? IMPORT_MAX_BYTES : IMPORT_MAX_FILE_BYTES;
+    if (chosen.size > limit) return setError(`The file is larger than ${formatBytes(limit)}. Split it into smaller files.`);
     setBusy("checking");
     try {
-      const data = await send({ type, mode: "preview", fileName: chosen.name, text });
-      setPreview(data.preview);
-      setFilter(data.preview.invalid ? "invalid" : "all");
+      const sheets = await readImportFile(chosen, (cells) => headerScore(type, toCsv([cells])));
+      await check({ name: chosen.name, sheets, sheet: bestSheet(type, sheets) });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not read the file");
+      if (input.current) input.current.value = "";
+    } finally {
+      setBusy("");
+    }
+  }
+
+  /** Server-side preview of one sheet. */
+  async function check(next: { name: string; sheets: ImportSheet[]; sheet: number }) {
+    const { csv } = next.sheets[next.sheet];
+    if (new Blob([csv]).size > IMPORT_MAX_BYTES) throw new Error(`The data is larger than ${formatBytes(IMPORT_MAX_BYTES)}. Split it into smaller files.`);
+    const data = await send({ type, mode: "preview", fileName: next.name, text: csv });
+    setFile(next);
+    setPreview(data.preview);
+    setFilter(data.preview.invalid ? "invalid" : "all");
+  }
+
+  async function chooseSheet(index: number) {
+    if (!file) return;
+    setBusy("checking");
+    setError(null);
+    try {
+      await check({ ...file, sheet: index });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not read the sheet");
     } finally {
       setBusy("");
     }
@@ -123,7 +156,7 @@ export function ImportButton({ types, label = "Import CSV" }: { types: ImportTyp
     setBusy("importing");
     setError(null);
     try {
-      const data = await send({ type, mode: "import", fileName: file.name, text: file.text });
+      const data = await send({ type, mode: "import", fileName: file.name, text: file.sheets[file.sheet].csv });
       const outcome = data.result as ImportResult;
       setResult(outcome);
       if (outcome.ok) toast.success(`${outcome.imported} record${outcome.imported === 1 ? "" : "s"} imported`);
@@ -209,6 +242,16 @@ export function ImportButton({ types, label = "Import CSV" }: { types: ImportTyp
             <p className="text-sm text-slate-600">
               <span className="font-semibold text-navy">{preview.fileName}</span> was checked against the current records. Nothing has been saved yet.
             </p>
+            {file && file.sheets.length > 1 ? (
+              <label className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+                <span className="font-medium">Sheet</span>
+                <Select value={String(file.sheet)} disabled={Boolean(busy)} onChange={(event) => chooseSheet(Number(event.target.value))} className="w-auto">
+                  {file.sheets.map((entry, index) => (
+                    <option key={entry.name} value={index}>{entry.name} ({entry.rows} row{entry.rows === 1 ? "" : "s"})</option>
+                  ))}
+                </Select>
+              </label>
+            ) : null}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Tile label="Total records" value={preview.total} />
               <Tile label="Ready to import" value={preview.valid} tone="good" />
@@ -276,10 +319,16 @@ export function ImportButton({ types, label = "Import CSV" }: { types: ImportTyp
             <div className="rounded-2xl bg-slate-50 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-navy">Columns</p>
-                <Button variant="outline" size="sm" onClick={() => downloadCsv(`nccs-${type}-template.csv`, templateRows(type))}>
-                  <Download className="h-3.5 w-3.5" aria-hidden />
-                  Download template
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" onClick={() => downloadXlsx(`nccs-${type}-template.xlsx`, templateRows(type))}>
+                    <Download className="h-3.5 w-3.5" aria-hidden />
+                    Excel template
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => downloadCsv(`nccs-${type}-template.csv`, templateRows(type))}>
+                    <Download className="h-3.5 w-3.5" aria-hidden />
+                    CSV template
+                  </Button>
+                </div>
               </div>
               <ul className="mt-3 grid gap-x-6 gap-y-1.5 text-xs text-slate-600 sm:grid-cols-2">
                 {spec.columns.map((column) => (
@@ -298,11 +347,14 @@ export function ImportButton({ types, label = "Import CSV" }: { types: ImportTyp
               )}
             >
               <FileUp className="h-6 w-6 text-teal" aria-hidden />
-              <span className="text-sm font-semibold text-navy">{busy === "checking" ? "Checking the file..." : "Choose a CSV file"}</span>
+              <span className="text-sm font-semibold text-navy">{busy === "checking" ? "Reading the file..." : "Choose a file"}</span>
               <span className="text-xs text-slate-500">
-                Up to {Math.round(IMPORT_MAX_BYTES / 1024)} KB and {IMPORT_MAX_ROWS.toLocaleString("en-PK")} rows. You will see a preview before anything is saved.
+                {IMPORT_FORMATS.map((format) => `${format.label} (${format.extensions.map((extension) => `.${extension}`).join(", ")})`).join(" · ")}
               </span>
-              <input ref={input} type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => choose(event.target.files?.[0])} />
+              <span className="text-xs text-slate-500">
+                Up to {formatBytes(IMPORT_MAX_FILE_BYTES)} and {IMPORT_MAX_ROWS.toLocaleString("en-PK")} rows. PDFs must contain a text table, not a scan. You will see a preview before anything is saved.
+              </span>
+              <input ref={input} type="file" accept={IMPORT_ACCEPT} className="sr-only" onChange={(event) => choose(event.target.files?.[0])} />
             </label>
             {error ? <ErrorText>{error}</ErrorText> : null}
           </div>
@@ -310,6 +362,22 @@ export function ImportButton({ types, label = "Import CSV" }: { types: ImportTyp
       </Modal>
     </>
   );
+}
+
+/** The sheet whose headers match the most expected columns (a workbook may start with a notes sheet). */
+function bestSheet(type: ImportType, sheets: ImportSheet[]) {
+  const score = (entry: ImportSheet) => headerScore(type, entry.csv.split(/\r?\n/, 1)[0]);
+  return sheets.reduce((best, entry, index) => (score(entry) > score(sheets[best]) ? index : best), 0);
+}
+
+/** Higher when a header line has more of the expected columns and fewer unknown ones. */
+function headerScore(type: ImportType, headerLine: string) {
+  const { missing, unknown } = readImportRows(type, headerLine);
+  return -missing.length * 100 - unknown.length;
+}
+
+function formatBytes(bytes: number) {
+  return bytes >= 1024 * 1024 ? `${Math.round(bytes / 1024 / 1024)} MB` : `${Math.round(bytes / 1024)} KB`;
 }
 
 function RowTable({ rows }: { rows: Array<{ line: number; pill: { label: string; className: string }; summary: string; detail: string }> }) {

@@ -188,7 +188,9 @@ async function studentsPlanner(userId: string) {
     const firstName = requireText(raw, "firstName", "First Name", messages);
     const lastName = requireText(raw, "lastName", "Last Name", messages);
     const fatherName = requireText(raw, "fatherName", "Father Name", messages);
-    const contactNumber = requireText(raw, "contactNumber", "Contact Number", messages);
+    // Excel stores 03001234567 as the number 3001234567; put the leading 0 back.
+    const contactText = requireText(raw, "contactNumber", "Contact Number", messages);
+    const contactNumber = /^3\d{9}$/.test(contactText) ? `0${contactText}` : contactText;
     const address = requireText(raw, "address", "Address", messages);
     const gender = requireEnum<Gender>(raw, "gender", "Gender", GENDER_LABELS, messages);
     const admittedText = (raw.dateOfAdmission ?? "").trim();

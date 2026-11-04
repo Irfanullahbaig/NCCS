@@ -1,7 +1,7 @@
 import type { Role } from "@/lib/enums";
 import { can, type Permission } from "@/lib/permissions";
 
-/** CSV import definitions. Safe to import from client components: no database access here. */
+/** Import definitions (CSV, Excel, PDF and text files all become CSV rows). Safe to import from client components: no database access here. */
 
 export type ImportType = "students" | "fees" | "receivables" | "income" | "expenses" | "transactions";
 

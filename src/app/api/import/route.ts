@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { IMPORT_MAX_BYTES, IMPORT_SPECS, isImportType } from "@/lib/import/specs";
 import { previewImport, runImport } from "@/lib/import/server";
+import { IMPORT_EXTENSIONS, fileExtension } from "@/lib/import/files";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,7 +55,8 @@ export async function POST(request: Request) {
   if (!isImportType(type)) return NextResponse.json({ error: "Unknown import type" }, { status: 400 });
   if (mode !== "preview" && mode !== "import") return NextResponse.json({ error: "Unknown mode" }, { status: 400 });
   if (typeof body.text !== "string") return NextResponse.json({ error: "No file content received" }, { status: 400 });
-  if (!/\.csv$/i.test(fileName)) return NextResponse.json({ error: "Only .csv files can be imported" }, { status: 400 });
+  // Spreadsheets and PDFs are converted to CSV text in the browser; the text gets the same checks either way.
+  if (!IMPORT_EXTENSIONS.includes(fileExtension(fileName))) return NextResponse.json({ error: "This file type cannot be imported" }, { status: 400 });
 
   const missing = IMPORT_SPECS[type].permissions.filter((permission) => !can(user.role, permission));
   if (missing.length) {
