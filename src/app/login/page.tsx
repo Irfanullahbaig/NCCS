@@ -1,4 +1,4 @@
-import { SCHOOL_FULL_NAME } from "@/lib/constants";
+import { BRAND_LOGO, SCHOOL_FULL_NAME } from "@/lib/constants";
 import { getSupabaseSecretKey, getSupabaseUrl } from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
@@ -19,10 +19,10 @@ function LoginLogo({
     <div className={["relative z-10", align === "center" ? "flex justify-center" : ""].join(" ")}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/nccs-logo-mark.png"
-        alt="NCCS"
-        width={180}
-        height={88}
+        src={BRAND_LOGO.src}
+        alt={BRAND_LOGO.alt}
+        width={BRAND_LOGO.width}
+        height={BRAND_LOGO.height}
         className={[
           "h-10 w-auto max-w-full object-contain sm:h-11",
           size === "lg" ? "lg:h-12" : "",

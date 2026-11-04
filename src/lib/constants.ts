@@ -1,5 +1,7 @@
 export const SCHOOL_NAME = "NCCS";
 export const SCHOOL_FULL_NAME = "NCCS School & College";
+/** Logo shown in the sidebar, login page and printed reports. Placeholder until the college logo is ready. */
+export const BRAND_LOGO = { src: "/college-logo.svg", alt: "College logo", width: 220, height: 64 };
 
 export const ROLE_LABELS = {
   ADMIN: "Admin",

@@ -2,7 +2,7 @@ import Image from "next/image";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
-import { PAYMENT_METHOD_LABELS, SCHOOL_FULL_NAME } from "@/lib/constants";
+import { BRAND_LOGO, PAYMENT_METHOD_LABELS, SCHOOL_FULL_NAME } from "@/lib/constants";
 import { currentMonthYear, formatDate, formatDateTime, formatPKR, fullName, monthLabel } from "@/lib/utils";
 import { PrintToolbar } from "@/components/print-toolbar";
 import { getLedgerEntries, getProfitAndLoss, getYearlyMonthTable } from "@/lib/ledger";
@@ -43,7 +43,7 @@ export default async function PrintReportPage({
       <article className="print-report-page mx-auto max-w-5xl bg-white p-8">
         <PrintToolbar />
         <header className="mb-6 border-b pb-4">
-          <Image src="/nccs-logo.svg" alt="NCCS" width={160} height={48} className="mb-3 h-12 w-auto" priority />
+          <Image src={BRAND_LOGO.src} alt={BRAND_LOGO.alt} width={BRAND_LOGO.width} height={BRAND_LOGO.height} className="mb-3 h-12 w-auto" priority />
           <h1 className="text-2xl font-semibold text-navy">{SCHOOL_FULL_NAME}</h1>
           <p className="text-sm text-slate-500">
             Report: {type.replaceAll("-", " ")} · Period: {financial ? period.label : monthLabel(month, year)} · Generated {formatDateTime(new Date())}
