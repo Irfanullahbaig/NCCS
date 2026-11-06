@@ -9,10 +9,10 @@ export function Logo({ compact = false, priority = false }: Props) {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         className="brand-logo"
-        src="/site/brand/nccs-logo.png"
+        src="/site/brand/nccs-logo.svg"
         alt="NCCS"
-        width={250}
-        height={100}
+        width={132}
+        height={60}
         decoding="async"
         fetchPriority={priority ? "high" : "auto"}
       />

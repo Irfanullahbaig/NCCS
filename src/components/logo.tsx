@@ -12,7 +12,7 @@ export function BrandLogo({
   compact?: boolean;
 }) {
   return (
-    <Link href={href} className={cn("inline-flex shrink-0 items-center", className)} aria-label="Home" suppressHydrationWarning>
+    <Link href={href} className={cn("inline-flex shrink-0 items-center", className)} aria-label="NCCS home" suppressHydrationWarning>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={BRAND_LOGO.src}

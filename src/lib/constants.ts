@@ -1,10 +1,7 @@
-/** Shown as "APS" for now; set back to "NCCS" / "NCCS School & College" to restore the original name. */
-export const SCHOOL_NAME = "APS";
-export const SCHOOL_FULL_NAME = "APS School & College";
-/** Names saved in Settings that are shown as SCHOOL_NAME instead, while the temporary name is in use. */
-export const REPLACED_SCHOOL_NAMES = ["NCCS"];
-/** Logo shown in the sidebar, login page and printed reports. Placeholder until the college logo is ready. */
-export const BRAND_LOGO = { src: "/college-logo.svg", alt: "College logo", width: 220, height: 64 };
+export const SCHOOL_NAME = "NCCS";
+export const SCHOOL_FULL_NAME = "NCCS School & College";
+/** Logo shown in the sidebar, login page and printed reports. */
+export const BRAND_LOGO = { src: "/nccs-logo.svg", alt: "NCCS", width: 132, height: 60 };
 
 export const ROLE_LABELS = {
   ADMIN: "Admin",

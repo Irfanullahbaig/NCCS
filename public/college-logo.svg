@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 64" role="img" aria-label="College logo">
-  <!-- Temporary placeholder. Replace this file with the college logo. -->
-  <path d="M32 4 L56 12 V30 C56 45 46 55 32 60 C18 55 8 45 8 30 V12 Z" fill="#1f2622"/>
-  <path d="M32 10 L50 16 V30 C50 41 43 49 32 53 C21 49 14 41 14 30 V16 Z" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="1.5"/>
-  <path d="M20 26 C25 24 29 24 32 27 C35 24 39 24 44 26 V42 C39 40 35 40 32 43 C29 40 25 40 20 42 Z" fill="#ffffff"/>
-  <path d="M32 27 V43" stroke="#1f2622" stroke-width="1.5"/>
-  <text x="68" y="31" fill="#1f2622" font-family="Georgia, 'Times New Roman', serif" font-size="22" font-weight="700" letter-spacing="1.5">COLLEGE</text>
-  <text x="69" y="50" fill="#64748b" font-family="Arial, Helvetica, sans-serif" font-size="11" letter-spacing="3.2">YOUR LOGO HERE</text>
-</svg>
