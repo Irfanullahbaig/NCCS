@@ -1,5 +1,7 @@
 import { jwtVerify } from "jose";
 import { NextResponse, type NextRequest } from "next/server";
+import type { Role } from "@/lib/enums";
+import { can, type Permission } from "@/lib/permissions";
 
 const PUBLIC_PATHS = new Set(["/login", "/api/auth/login", "/api/auth/logout", "/robots.txt", "/sitemap.xml"]);
 /** The public college website; everything else needs a staff session. */
@@ -19,6 +21,14 @@ function safeNext(value: string | null) {
 function secret() {
   return new TextEncoder().encode(process.env.AUTH_SECRET ?? "");
 }
+
+/** Pages each role needs a permission for before the page itself loads. */
+const GUARDED_PATHS: Array<{ prefix: string; permission: Permission }> = [
+  { prefix: "/users", permission: "users.manage" },
+  { prefix: "/settings", permission: "settings.manage" },
+  { prefix: "/audit", permission: "audit.view" },
+  { prefix: "/api/backup", permission: "backup.manage" },
+];
 
 function isFinanceAnalyticsPath(pathname: string) {
   return pathname === "/finance" || pathname === "/finance/";
@@ -43,17 +53,11 @@ export async function proxy(request: NextRequest) {
   if (token) {
     try {
       const { payload } = await jwtVerify(token, secret());
-      const role = String(payload.role);
-      if (
-        (pathname.startsWith("/users") ||
-          pathname.startsWith("/settings") ||
-          pathname.startsWith("/audit") ||
-          pathname.startsWith("/api/backup")) &&
-        role !== "ADMIN"
-      ) {
+      const role = String(payload.role) as Role;
+      if (GUARDED_PATHS.some((guard) => pathname.startsWith(guard.prefix) && !can(role, guard.permission))) {
         return NextResponse.redirect(new URL("/dashboard", request.url));
       }
-      if (role === "ACCOUNTANT" && isFinanceAnalyticsPath(pathname)) {
+      if (isFinanceAnalyticsPath(pathname) && !can(role, "finance.analytics")) {
         return NextResponse.redirect(new URL("/finance/income", request.url));
       }
     } catch {

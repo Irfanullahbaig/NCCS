@@ -86,28 +86,8 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "reports.export",
     "salaries.view",
   ],
-  ACCOUNTANT: [
-    "dashboard.view",
-    "students.view",
-    "students.create",
-    "staff.view",
-    "staff.create",
-    "staff.edit",
-    "classes.view",
-    "fees.view",
-    "fees.record",
-    "fees.void",
-    "fees.waive",
-    "finance.view",
-    "finance.create",
-    "finance.edit",
-    "finance.void",
-    "data.import",
-    "reports.view",
-    "reports.export",
-    "salaries.view",
-    "salaries.record",
-  ],
+  // Everything Admin has except managing user accounts and their roles.
+  ACCOUNTANT: ALL.filter((permission) => permission !== "users.manage"),
 };
 
 export function can(role: Role, permission: Permission) {

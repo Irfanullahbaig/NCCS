@@ -15,7 +15,7 @@ export default async function UsersPage() {
     <div>
       <PageHeader
         title="Users"
-        subtitle="Admin-only account management. Accountant/HR cannot modify admin accounts or system settings."
+        subtitle="Admin-only account management. Accountant / HR can use every other part of the system but cannot add users or change roles."
         actions={<AddUserButton />}
       />
       <div className="overflow-hidden rounded-3xl bg-white shadow-card">
