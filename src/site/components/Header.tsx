@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { navigation } from "@/site/data/navigation";
+import { site } from "@/site/data/site";
 import { Logo } from "@/site/components/Logo";
 import { MobileMenu } from "@/site/components/MobileMenu";
 
@@ -38,6 +39,19 @@ export function Header() {
 
   return (
     <>
+    <div className="topbar">
+      <div className="topbar-inner">
+        <p className="topbar-place">{site.fullName} · {site.location}</p>
+        <p>
+          <Link href="/admissions">Admissions</Link>
+          {" · "}
+          <Link href="/contact">Contact</Link>
+          {" · "}
+          {/* Plain link: the staff dashboard has its own layout, so this is a full page load. */}
+          <a href="/login?next=/students">Staff login</a>
+        </p>
+      </div>
+    </div>
     <header className={`header${scrolled ? " is-scrolled" : ""}`}>
       <div className="header-inner">
         <Link href="/" className="brand-link" aria-label="NCCS home">
@@ -55,6 +69,10 @@ export function Header() {
             </Link>
           ))}
         </nav>
+
+        <Link className="header-apply" href="/admissions">
+          Apply Now
+        </Link>
 
         <button
           type="button"

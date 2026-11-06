@@ -292,15 +292,61 @@ h3 {
   top: 0;
   z-index: 50;
   height: var(--header-h);
-  background: rgba(14, 76, 140, 0.94);
-  backdrop-filter: blur(16px) saturate(1.2);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  transition: background 0.3s ease, border-color 0.3s ease;
+  background: #fff;
+  border-bottom: 1px solid #e7eaee;
+  transition: box-shadow 0.3s ease;
 }
 
 .header.is-scrolled {
-  background: #0c4378;
-  border-bottom-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 8px 30px rgba(12, 27, 51, 0.1);
+}
+
+.topbar {
+  background: var(--navy);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.8rem;
+}
+
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 40px;
+  width: min(1240px, calc(100% - 40px));
+  margin-inline: auto;
+}
+
+.topbar p {
+  margin: 0;
+}
+
+.topbar a {
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.topbar a:hover {
+  color: #ff6b66;
+}
+
+.header-apply {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 1.1rem;
+  background: #e01a1a;
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.2s ease;
+}
+
+.header-apply:hover {
+  background: #c3121a;
 }
 
 .header-inner {
@@ -347,7 +393,7 @@ h3 {
 .brand-text small {
   margin-top: 0;
   max-width: 220px;
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--muted);
   font-size: 0.68rem;
   line-height: 1.35;
   letter-spacing: 0.01em;
@@ -361,7 +407,7 @@ h3 {
 
 .nav-desktop a {
   text-decoration: none;
-  color: white;
+  color: var(--navy);
   font-size: 0.92rem;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -369,11 +415,11 @@ h3 {
 
 .nav-desktop a:hover,
 .nav-desktop a[aria-current="page"] {
-  color: white;
+  color: #e01a1a;
 }
 
 .nav-desktop a[aria-current="page"] {
-  box-shadow: inset 0 -2px 0 white;
+  box-shadow: inset 0 -2px 0 #e01a1a;
 }
 
 .header-cta {
@@ -396,7 +442,7 @@ h3 {
 .menu-toggle span {
   display: block;
   height: 1.5px;
-  background: white;
+  background: var(--navy);
   transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
@@ -411,9 +457,8 @@ h3 {
 .mobile-menu {
   position: fixed;
   z-index: 60;
-  inset: var(--header-h) 0 0 0;
-  background: #0e4c8c;
-  backdrop-filter: blur(16px);
+  inset: 0;
+  background: var(--navy);
   padding: 12px 24px 32px;
   display: flex;
   flex-direction: column;
@@ -1112,9 +1157,14 @@ h3 {
 }
 
 .footer {
-  background: var(--navy-deep);
-  color: rgba(255, 255, 255, 0.76);
+  background: #121722;
+  color: rgba(255, 255, 255, 0.7);
   padding: 72px 0 28px;
+  border-top: 4px solid #e01a1a;
+}
+
+.footer .brand-text small {
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .footer-grid {
@@ -1133,7 +1183,11 @@ h3 {
 }
 
 .footer-label {
-  margin: 0 0 14px;
+  margin: 0 0 18px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #e01a1a;
+  width: fit-content;
+  min-width: 120px;
   color: white;
   font-size: 0.78rem;
   font-weight: 700;
@@ -1151,12 +1205,12 @@ h3 {
 
 .footer li,
 .footer a {
-  color: white;
+  color: rgba(255, 255, 255, 0.78);
   text-decoration: none;
 }
 
 .footer a:hover {
-  color: white;
+  color: #ff6b66;
 }
 
 .social {
@@ -1194,8 +1248,9 @@ h3 {
 }
 
 .footer .staff-login:hover {
-  border-color: var(--gold-on-dark);
-  color: var(--gold-on-dark);
+  border-color: #e01a1a;
+  background: #e01a1a;
+  color: #fff;
 }
 
 .article {
@@ -1233,6 +1288,17 @@ h3 {
 
   .menu-toggle {
     display: inline-flex;
+  }
+}
+
+@media (max-width: 600px) {
+  .header-apply,
+  .topbar-place {
+    display: none;
+  }
+
+  .topbar-inner {
+    justify-content: center;
   }
 }
 
