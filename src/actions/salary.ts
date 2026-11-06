@@ -11,7 +11,7 @@ function fail(error: string) {
 }
 
 function refreshSalary(staffId?: string) {
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   revalidatePath("/finance");
   revalidatePath("/finance/salaries");
   revalidatePath("/finance/advances");

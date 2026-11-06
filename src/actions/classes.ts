@@ -289,7 +289,7 @@ export async function createClass(formData: FormData) {
 
   revalidatePath("/classes");
   revalidatePath("/staff");
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   return { ok: true as const, id: schoolClass.data.id };
 }
 
@@ -374,7 +374,7 @@ export async function deleteClass(formData: FormData) {
 
   revalidatePath("/classes");
   revalidatePath("/staff");
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   return { ok: true as const };
 }
 

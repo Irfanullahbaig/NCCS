@@ -88,7 +88,7 @@ export default async function LoginPage({
             </p>
           ) : null}
           <form action="/api/auth/login" method="post" className="mt-8 space-y-4">
-            <input type="hidden" name="next" value={params.next ?? "/"} />
+            <input type="hidden" name="next" value={params.next ?? "/dashboard"} />
             <div>
               <label className="mb-1.5 block text-xs font-medium text-slate-500">Email</label>
               <input name="email" type="email" required autoComplete="username" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 outline-none transition focus:border-teal focus:ring-4 focus:ring-teal/10" />

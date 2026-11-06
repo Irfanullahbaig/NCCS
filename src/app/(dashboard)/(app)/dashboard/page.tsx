@@ -87,7 +87,7 @@ export default async function DashboardPage({
             { label: "Yearly", href: `/?period=year&year=${period.year}`, active: period.mode === "year" },
           ]}
         />
-        <form action="/" className="flex flex-wrap items-center gap-2">
+        <form action="/dashboard" className="flex flex-wrap items-center gap-2">
           <input type="hidden" name="period" value={period.mode} />
           <CalendarDays className="h-4 w-4 text-slate-400" />
           {period.mode === "month" ? (

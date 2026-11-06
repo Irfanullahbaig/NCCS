@@ -5,15 +5,16 @@ import { writeAudit } from "@/lib/audit";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Only paths on this site; "//host" would leave it. */
 function nextPath(value: string) {
-  return value.startsWith("/") ? value : "/";
+  return value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/\\") ? value : "/dashboard";
 }
 
 export async function POST(request: Request) {
   const form = await request.formData();
   const email = String(form.get("email") ?? "").trim().toLowerCase();
   const password = String(form.get("password") ?? "");
-  const next = nextPath(String(form.get("next") ?? "/") || "/");
+  const next = nextPath(String(form.get("next") ?? ""));
   const login = new URL("/login", request.url);
 
   try {

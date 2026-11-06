@@ -7,7 +7,7 @@ import { writeAudit } from "@/lib/audit";
 export async function loginAction(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
-  const next = String(formData.get("next") ?? "/") || "/";
+  const next = String(formData.get("next") ?? "");
 
   let user;
   try {
@@ -35,7 +35,7 @@ export async function loginAction(formData: FormData) {
     redirect("/login?error=server");
   }
 
-  redirect(next.startsWith("/") ? next : "/");
+  redirect(next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/dashboard");
 }
 
 export async function logoutAction() {

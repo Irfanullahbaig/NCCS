@@ -56,7 +56,7 @@ export async function createStudent(formData: FormData) {
 
   revalidatePath("/students");
   revalidatePath("/classes");
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   return { ok: true as const, id: student.id };
 }
 
@@ -119,7 +119,7 @@ export async function updateStudent(formData: FormData) {
   revalidatePath("/students");
   revalidatePath(`/students/${id}`);
   revalidatePath("/classes");
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   return { ok: true as const, id };
 }
 
@@ -145,6 +145,6 @@ export async function deleteStudent(formData: FormData) {
   });
 
   revalidatePath("/students");
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   return { ok: true as const };
 }

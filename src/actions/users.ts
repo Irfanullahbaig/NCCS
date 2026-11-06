@@ -122,7 +122,7 @@ export async function saveSettingsAction(formData: FormData) {
   });
 
   revalidatePath("/settings");
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   const { invalidateSchoolName } = await import("@/lib/school");
   invalidateSchoolName();
   return { ok: true as const };
@@ -163,6 +163,6 @@ export async function saveLateFeeSettingsAction(formData: FormData) {
   revalidatePath("/finance/fees");
   revalidatePath("/finance/outstanding");
   revalidatePath("/students");
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   return { ok: true as const };
 }

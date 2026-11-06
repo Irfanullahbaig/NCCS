@@ -88,7 +88,7 @@ export async function createStaff(formData: FormData) {
   });
 
   revalidatePath("/staff");
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   revalidatePath("/finance/salaries");
   return { ok: true as const, id: staff.data.id };
 }

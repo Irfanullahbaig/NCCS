@@ -94,7 +94,7 @@ export async function requireUser() {
 export async function requirePermission(permission: Permission) {
   const user = await requireUser();
   if (!can(user.role, permission)) {
-    redirect("/");
+    redirect("/dashboard");
   }
   return user;
 }

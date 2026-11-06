@@ -42,7 +42,7 @@ export async function restoreBackupAction(formData: FormData) {
       entityId: filename,
       details: { safetyBackup: safety.filename },
     });
-    revalidatePath("/");
+    revalidatePath("/dashboard");
     revalidatePath("/settings");
     revalidatePath("/students");
     revalidatePath("/staff");

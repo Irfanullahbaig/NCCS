@@ -34,7 +34,7 @@ import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/logo";
 
 const NAV_ICONS: Record<string, typeof LayoutDashboard> = {
-  "/": LayoutDashboard,
+  "/dashboard": LayoutDashboard,
   "/students": GraduationCap,
   "/classes": BookOpen,
   "/staff": Users,
@@ -73,7 +73,7 @@ export function ShellChrome({
   );
 
   const isActive = (href: string) => {
-    if (href === "/") return pathname === "/";
+    if (href === "/dashboard") return pathname === "/dashboard";
     if (href === "/finance") return pathname === "/finance";
     return pathname === href || pathname.startsWith(`${href}/`);
   };

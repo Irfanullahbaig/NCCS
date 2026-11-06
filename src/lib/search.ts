@@ -144,7 +144,7 @@ function pageHits(user: SessionUser, words: string[]) {
     type: "page" as const,
     id: page.href,
     title: page.label,
-    subtitle: page.href === "/" ? "Go to the dashboard" : `Go to ${page.label}`,
+    subtitle: page.href === "/dashboard" ? "Go to the dashboard" : `Go to ${page.label}`,
     href: page.href,
     actions: [],
     previewable: false,

@@ -3,7 +3,7 @@ import { BRAND_LOGO } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 export function BrandLogo({
-  href = "/",
+  href = "/dashboard",
   className,
   compact = false,
 }: {

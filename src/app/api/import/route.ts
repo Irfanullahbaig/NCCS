@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const REFRESH = [
-  "/",
+  "/dashboard",
   "/students",
   "/classes",
   "/finance",

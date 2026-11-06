@@ -13,7 +13,7 @@ export type NavPage = {
 };
 
 export const NAV_PAGES: NavPage[] = [
-  { href: "/", section: "Overview", label: "Dashboard", permission: "dashboard.view", keywords: ["home", "overview", "summary"] },
+  { href: "/dashboard", section: "Overview", label: "Dashboard", permission: "dashboard.view", keywords: ["home", "overview", "summary"] },
   { href: "/students", section: "Academics", label: "Students", permission: "students.view", keywords: ["pupils", "admission", "enrolment", "scholarship"] },
   { href: "/classes", section: "Academics", label: "Classes", permission: "classes.view", keywords: ["grade", "section", "program", "subjects", "course"] },
   { href: "/staff", section: "Academics", label: "Staff / Teachers", permission: "staff.view", keywords: ["teacher", "faculty", "employee", "hr"] },

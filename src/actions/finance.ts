@@ -22,7 +22,7 @@ function fail(error: string) {
 }
 
 function refreshFinance() {
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   revalidatePath("/finance");
   revalidatePath("/finance/income");
   revalidatePath("/finance/expenses");
