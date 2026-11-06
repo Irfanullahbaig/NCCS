@@ -424,6 +424,22 @@ export type FeeMonthState = {
   lateFeeIfPaidLate: number;
 };
 
+export type OutstandingVoucher = { month: number; year: number; label: string; remaining: number; status: FeeStatus };
+
+/** Every issued fee voucher the student still owes on, oldest first. */
+export async function getStudentOutstandingVouchers(studentId: string): Promise<OutstandingVoucher[]> {
+  const { data, error } = await db()
+    .from("FeeRecord")
+    .select("month, year, remainingAmount, status")
+    .eq("studentId", studentId)
+    .in("status", ["PENDING", "OVERDUE", "PARTIALLY_PAID"]);
+  if (error) throw error;
+  return (data ?? [])
+    .filter((row) => row.remainingAmount > 0)
+    .sort((a, b) => a.year * 12 + a.month - (b.year * 12 + b.month))
+    .map((row) => ({ month: row.month, year: row.year, label: monthLabel(row.month, row.year), remaining: row.remainingAmount, status: row.status }));
+}
+
 /** Month-by-month dues for one student and year, for the payment form. */
 export async function getStudentFeeMonths(studentId: string, year: number): Promise<FeeMonthState[]> {
   const policy = await getLateFeePolicy();

@@ -110,6 +110,9 @@ export default async function DashboardPage({
         </form>
       </div>
 
+      {/* Finance from the accounting journal comes first */}
+      {ledger ? <LedgerSections data={ledger} canRecord={canRecord} insights={board.insights} /> : null}
+
       {/* Headline numbers */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <StatCard
@@ -150,9 +153,7 @@ export default async function DashboardPage({
         />
       </div>
 
-      {ledger ? (
-        <LedgerSections data={ledger} canRecord={canRecord} insights={board.insights} />
-      ) : (
+      {ledger ? null : (
         <>
       {/* Financial overview */}
       <Card title="Financial overview" subtitle={`Totals ${scope}${finance ? `, compared with the previous ${period.mode === "year" ? "year" : "month"}` : ""}`}>

@@ -69,15 +69,29 @@ export async function recordPaymentAction(formData: FormData) {
     const paymentMethod = String(formData.get("paymentMethod") ?? "") as PaymentMethod;
     const referenceNumber = String(formData.get("referenceNumber") ?? "").trim();
     const notes = String(formData.get("notes") ?? "").trim();
-    const year = Number(formData.get("year") ?? 0);
     const category = (String(formData.get("feeType") ?? "STUDENT_FEE") || "STUDENT_FEE") as IncomeCategory;
-    const months = formData.getAll("months").map(Number).filter((month) => month >= 1 && month <= 12);
     if (!studentId || !paymentDate || !paymentMethod) return fail("Student, date, and payment method are required");
-    if (!year || !months.length) return fail("Select the fee year and at least one month");
+
+    // Each selected fee voucher arrives as "YYYY-MM" with its own amount field.
+    const periods = [...new Set(formData.getAll("period").map(String))]
+      .map((value) => {
+        const [year, month] = value.split("-").map(Number);
+        return { key: value, year, month };
+      })
+      .filter((period) => period.year >= 2000 && period.month >= 1 && period.month <= 12)
+      .sort((a, b) => a.year * 12 + a.month - (b.year * 12 + b.month));
+    // Older single-year form fields.
+    if (!periods.length) {
+      const year = Number(formData.get("year") ?? 0);
+      for (const month of formData.getAll("months").map(Number).filter((value) => value >= 1 && value <= 12)) {
+        periods.push({ key: String(month), year, month });
+      }
+    }
+    if (!periods.length || periods.some((period) => !period.year)) return fail("Select at least one fee month");
 
     let recorded = 0;
-    for (const month of months) {
-      const monthAmount = Number(formData.get(`amount_${month}`) || amount);
+    for (const period of periods) {
+      const monthAmount = Number(formData.get(`amount_${period.key}`) || amount);
       if (!monthAmount) continue;
       recorded += 1;
       await recordStudentPayment({
@@ -87,8 +101,8 @@ export async function recordPaymentAction(formData: FormData) {
         paymentMethod,
         referenceNumber: referenceNumber || null,
         notes: notes || null,
-        month,
-        year,
+        month: period.month,
+        year: period.year,
         category,
         userId: user.id,
       });

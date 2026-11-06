@@ -3,7 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { Search, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { createClass, createProgram, createSubject, deleteClass, deleteSubject, updateClass, updateSubject } from "@/actions/classes";
 import { createExpenseAction, createIncomeAction, initiateVouchersAction, recordPaymentAction } from "@/actions/finance";
 import { recordSalaryPaymentAction, updateSalaryPaymentAction } from "@/actions/salary";
@@ -11,7 +11,7 @@ import { createStaff, updateStaff } from "@/actions/staff";
 import { createStudent, deleteStudent, updateStudent } from "@/actions/students";
 import { createUserAction } from "@/actions/users";
 import { Button, ErrorText, Field, Input, Select, Textarea } from "@/components/ui";
-import { calendarDateInKarachi, formatPKR, MONTH_NAMES } from "@/lib/utils";
+import { calendarDateInKarachi, cn, formatPKR, MONTH_NAMES } from "@/lib/utils";
 import {
   EMPLOYMENT_LABELS,
   EXPENSE_CATEGORY_LABELS,
@@ -901,6 +901,8 @@ export type FeeMonthState = {
   month: number;
   year: number;
   label: string;
+  /** Null when no voucher has been issued for the month yet. */
+  feeRecordId?: string | null;
   blocked: boolean;
   blockedReason: string | null;
   expected: number;
@@ -952,6 +954,149 @@ export function useFeeMonths(studentId: string, year: number) {
   return { loading: false, months: result.months, error: result.error };
 }
 
+type OutstandingVoucher = { month: number; year: number; label: string; remaining: number; status: string };
+
+const periodKey = (year: number, month: number) => `${year}-${String(month).padStart(2, "0")}`;
+
+/** Fee months for any number of years, loaded a year at a time and kept while the form is open. */
+function useStudentFeeYears(studentId: string, year: number) {
+  const [cache, setCache] = useState<{ studentId: string; years: Record<number, FeeMonthState[]>; errors: Record<number, string> }>({ studentId: "", years: {}, errors: {} });
+  const [outstanding, setOutstanding] = useState<{ studentId: string; rows: OutstandingVoucher[] } | null>(null);
+  const current = cache.studentId === studentId ? cache : { studentId, years: {}, errors: {} };
+  const needYear = Boolean(studentId) && year >= 2000 && year <= 2100 && !current.years[year] && !current.errors[year];
+
+  useEffect(() => {
+    if (!needYear) return;
+    let cancelled = false;
+    fetch(`/api/students/${studentId}/fees?year=${year}`)
+      .then(async (response) => {
+        const body = await response.json();
+        if (cancelled) return;
+        setCache((value) => {
+          const base = value.studentId === studentId ? value : { studentId, years: {}, errors: {} };
+          return response.ok
+            ? { ...base, years: { ...base.years, [year]: body.months } }
+            : { ...base, errors: { ...base.errors, [year]: body.error ?? "Unable to load fees" } };
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setCache((value) => ({ ...value, studentId, errors: { ...value.errors, [year]: "Unable to load fees" } }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [needYear, studentId, year]);
+
+  useEffect(() => {
+    if (!studentId) return;
+    let cancelled = false;
+    fetch(`/api/students/${studentId}/fees?outstanding=1`)
+      .then((response) => response.json())
+      .then((body) => {
+        if (!cancelled) setOutstanding({ studentId, rows: body.outstanding ?? [] });
+      })
+      .catch(() => {
+        if (!cancelled) setOutstanding({ studentId, rows: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [studentId]);
+
+  const find = (key: string) => {
+    const [y, m] = key.split("-").map(Number);
+    return current.years[y]?.find((row) => row.month === m);
+  };
+  return {
+    months: current.years[year] ?? [],
+    loading: needYear,
+    error: current.errors[year] ?? null,
+    outstanding: outstanding?.studentId === studentId ? outstanding.rows : null,
+    find,
+  };
+}
+
+type CardState = { tone: "paid" | "due" | "overdue" | "partial" | "advance" | "off"; label: string; amount: number; selectable: boolean };
+
+function cardState(row: FeeMonthState, paymentDate: string): CardState {
+  const due = dueOnDate(row, paymentDate);
+  const amount = due.base + due.fine;
+  if (row.blocked) return { tone: "off", label: "Before admission", amount: 0, selectable: false };
+  if (row.status === "WAIVED") return { tone: "off", label: "Scholarship", amount: 0, selectable: false };
+  if (!row.feeRecordId) {
+    const fee = Math.max(0, row.expected - row.waived);
+    const now = new Date();
+    const future = row.year * 12 + row.month > now.getFullYear() * 12 + now.getMonth() + 1;
+    // Never charged: nothing is owed, but it can be paid (which issues the voucher).
+    return fee ? { tone: "advance", label: future ? "Advance" : "Not issued", amount: fee, selectable: true } : { tone: "off", label: "Nothing due", amount: 0, selectable: false };
+  }
+  if (!amount) return { tone: "paid", label: "Paid", amount: row.paid, selectable: false };
+  if (row.status === "PARTIALLY_PAID") return { tone: "partial", label: "Partly paid", amount, selectable: true };
+  if (row.status === "OVERDUE") return { tone: "overdue", label: "Overdue", amount, selectable: true };
+  return { tone: "due", label: "Due", amount, selectable: true };
+}
+
+const CARD_TONE: Record<CardState["tone"], string> = {
+  paid: "border-emerald-100 bg-emerald-50/60 text-emerald-800",
+  due: "border-amber-200 bg-amber-50 text-amber-900 hover:border-amber-300",
+  overdue: "border-rose-200 bg-rose-50 text-rose-800 hover:border-rose-300",
+  partial: "border-sky-200 bg-sky-50 text-sky-900 hover:border-sky-300",
+  advance: "border-dashed border-slate-200 bg-white text-slate-600 hover:border-slate-300",
+  off: "border-slate-100 bg-slate-50 text-slate-400",
+};
+
+/** Twelve selectable month cards for one year: paid and waived months are locked, due months can be picked. */
+function FeeMonthCards({
+  months,
+  year,
+  paymentDate,
+  selected,
+  onToggle,
+}: {
+  months: FeeMonthState[];
+  year: number;
+  paymentDate: string;
+  selected: string[];
+  onToggle: (key: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label={`Fee months ${year}`}>
+      {months.map((row) => {
+        const key = periodKey(year, row.month);
+        const state = cardState(row, paymentDate);
+        const isSelected = selected.includes(key);
+        return (
+          <button
+            key={key}
+            type="button"
+            disabled={!state.selectable}
+            aria-pressed={isSelected}
+            aria-label={`${row.label}: ${state.label}${state.amount ? `, ${formatPKR(state.amount)}` : ""}`}
+            onClick={() => onToggle(key)}
+            className={cn(
+              "relative rounded-2xl border px-3 py-2.5 text-left transition",
+              CARD_TONE[state.tone],
+              state.selectable ? "cursor-pointer" : "cursor-not-allowed",
+              isSelected && "border-navy bg-white text-navy ring-2 ring-navy",
+            )}
+          >
+            <span className="flex items-center justify-between gap-2">
+              <span className="text-sm font-semibold">{MONTH_NAMES[row.month - 1].slice(0, 3)}</span>
+              {isSelected ? (
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-navy text-white"><Check className="h-3 w-3" /></span>
+              ) : state.tone === "paid" ? (
+                <Check className="h-4 w-4" />
+              ) : null}
+            </span>
+            <span className="mt-1 block text-[11px] font-medium uppercase tracking-wide opacity-80">{state.label}</span>
+            <span className="block text-xs">{state.amount ? (state.tone === "paid" ? `${formatPKR(state.amount)} paid` : formatPKR(state.amount)) : "—"}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function PaymentForm({
   open,
   onClose,
@@ -965,36 +1110,43 @@ export function PaymentForm({
 }) {
   const { error, pending, submit } = useSubmit();
   const today = calendarDateInKarachi();
-  const now = new Date();
   const [studentId, setStudentId] = useState(presetStudentId ?? "");
-  const [months, setMonths] = useState<number[]>([now.getMonth() + 1]);
-  const [year, setYear] = useState(now.getFullYear());
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [year, setYear] = useState(new Date().getFullYear());
   const [paymentDate, setPaymentDate] = useState(today);
-  const [edited, setEdited] = useState<Record<number, string>>({});
+  const [edited, setEdited] = useState<Record<string, string>>({});
   const selected = students.find((student) => student.id === studentId);
-  const fees = useFeeMonths(studentId, year);
+  const fees = useStudentFeeYears(studentId, year);
+  // The student whose oldest unpaid voucher year has already been shown.
+  const [pickedFor, setPickedFor] = useState("");
 
   useEffect(() => {
     setStudentId(presetStudentId ?? "");
-    setMonths([new Date().getMonth() + 1]);
+    setSelectedKeys([]);
     setYear(new Date().getFullYear());
     setPaymentDate(calendarDateInKarachi());
     setEdited({});
+    setPickedFor("");
   }, [presetStudentId, open]);
 
-  const disabledMonths = Object.fromEntries(
-    fees.months.filter((item) => item.blocked).map((item) => [item.month, "before admission"]),
-  );
-  const rows = months
-    .map((month) => fees.months.find((item) => item.month === month))
-    .filter((item): item is FeeMonthState => Boolean(item));
-  const amountFor = (row: FeeMonthState) => {
-    if (edited[row.month] !== undefined) return edited[row.month];
-    const due = dueOnDate(row, paymentDate);
-    return due.base + due.fine ? String(due.base + due.fine) : "";
+  // Open on the year of the oldest unpaid voucher, so earlier dues are seen first.
+  if (fees.outstanding && studentId && pickedFor !== studentId) {
+    setPickedFor(studentId);
+    if (fees.outstanding.length) setYear(fees.outstanding[0].year);
+  }
+
+  const rows = selectedKeys
+    .map((key) => ({ key, row: fees.find(key) }))
+    .filter((item): item is { key: string; row: FeeMonthState } => Boolean(item.row));
+  const amountFor = (key: string, row: FeeMonthState) => {
+    if (edited[key] !== undefined) return edited[key];
+    const state = cardState(row, paymentDate);
+    return state.selectable && state.amount ? String(state.amount) : "";
   };
-  const total = rows.reduce((sum, row) => sum + (Number(amountFor(row)) || 0), 0);
-  const blockedChosen = rows.filter((row) => row.blocked);
+  const total = rows.reduce((sum, { key, row }) => sum + (Number(amountFor(key, row)) || 0), 0);
+  const outstandingTotal = (fees.outstanding ?? []).reduce((sum, row) => sum + row.remaining, 0);
+  const toggle = (key: string) =>
+    setSelectedKeys((current) => (current.includes(key) ? current.filter((value) => value !== key) : [...current, key].sort()));
 
   return (
     <Modal open={open} onClose={onClose} title="Record fee payment">
@@ -1012,6 +1164,7 @@ export function PaymentForm({
             required
             onChange={(student) => {
               setStudentId(student?.id ?? "");
+              setSelectedKeys([]);
               setEdited({});
             }}
           />
@@ -1042,91 +1195,156 @@ export function PaymentForm({
             required
           />
         </Field>
-        <FeeMonthPicker
-          months={months}
-          onChange={(next) => setMonths(next.filter((month) => !disabledMonths[month]))}
-          year={year}
-          onYearChange={(next) => {
-            setYear(next);
-            setEdited({});
-          }}
-          disabledMonths={disabledMonths}
-        />
+
+        {studentId ? (
+          <div className="sm:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-medium text-navy">Outstanding fee vouchers</p>
+              {fees.outstanding?.length ? (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-orange hover:underline"
+                  onClick={() => {
+                    const keys = fees.outstanding!.map((row) => periodKey(row.year, row.month));
+                    setSelectedKeys(keys.every((key) => selectedKeys.includes(key)) ? [] : keys);
+                    setEdited({});
+                  }}
+                >
+                  {fees.outstanding.every((row) => selectedKeys.includes(periodKey(row.year, row.month))) ? "Clear selection" : `Select all due (${formatPKR(outstandingTotal)})`}
+                </button>
+              ) : null}
+            </div>
+            {fees.outstanding === null ? (
+              <p className="mt-2 text-sm text-slate-500">Loading…</p>
+            ) : fees.outstanding.length ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {fees.outstanding.map((row) => {
+                  const key = periodKey(row.year, row.month);
+                  const on = selectedKeys.includes(key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => {
+                        setYear(row.year);
+                        toggle(key);
+                      }}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition",
+                        on ? "border-navy bg-navy text-white" : row.status === "OVERDUE" ? "border-rose-200 bg-rose-50 text-rose-800" : row.status === "PARTIALLY_PAID" ? "border-sky-200 bg-sky-50 text-sky-900" : "border-amber-200 bg-amber-50 text-amber-900",
+                      )}
+                    >
+                      {on ? <Check className="h-3 w-3" /> : null}
+                      {row.label} · {formatPKR(row.remaining)}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="mt-2 rounded-xl bg-sage px-3 py-2 text-sm text-teal">No unpaid vouchers. You can still pay a month in advance below.</p>
+            )}
+          </div>
+        ) : null}
+
         <div className="sm:col-span-2">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-sm font-medium text-navy">Fee months</p>
+            <div className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-0.5">
+              <button type="button" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" onClick={() => setYear((value) => value - 1)} aria-label="Previous year">
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="min-w-12 text-center text-sm font-semibold text-navy">{year}</span>
+              <button type="button" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" onClick={() => setYear((value) => value + 1)} aria-label="Next year">
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
           {!studentId ? (
             <p className="rounded-xl border border-dashed border-slate-200 px-3 py-3 text-sm text-slate-500">
-              Choose a student to see what is due for each month.
+              Choose a student to see each month&apos;s fee voucher and what is due.
             </p>
           ) : fees.loading ? (
-            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-500">Loading fee balances…</p>
+            <p className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-500">Loading fee vouchers…</p>
           ) : fees.error ? (
             <p className="rounded-xl bg-rose-50 px-3 py-3 text-sm text-rose-700">{fees.error}</p>
-          ) : rows.length ? (
-            <div className="overflow-x-auto rounded-xl border border-slate-100">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2">Month</th>
-                    <th className="px-3 py-2">Fee</th>
-                    <th className="px-3 py-2">Paid</th>
-                    <th className="px-3 py-2">Late fee</th>
-                    <th className="px-3 py-2">Due</th>
-                    <th className="px-3 py-2">Amount to pay</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => {
-                    const due = dueOnDate(row, paymentDate);
-                    const settled = row.status === "WAIVED" || due.base + due.fine === 0;
-                    const note = row.status === "WAIVED"
-                      ? "Fee waived"
-                      : settled
-                        ? "Already fully paid"
-                        : row.fineWaived
-                          ? "Late fee waived"
-                          : due.fine
-                            ? `Includes ${formatPKR(due.fine)} late fee (paid after ${row.dueDate.slice(8)} ${MONTH_NAMES[row.month - 1]})`
-                            : row.lateFeeIfPaidLate && paymentDate <= row.dueDate
-                              ? "No late fee: paid by the due date"
-                              : row.lateFeeNote;
-                    return (
-                      <tr key={row.month} className="border-t border-slate-100 align-top">
-                        <td className="px-3 py-2 font-medium text-navy">{row.label}</td>
-                        <td className="px-3 py-2">{formatPKR(row.expected - row.waived)}</td>
-                        <td className="px-3 py-2">{formatPKR(row.paid)}</td>
-                        <td className="px-3 py-2">{due.fine ? formatPKR(due.fine) : "—"}</td>
-                        <td className="px-3 py-2 font-medium">{formatPKR(due.base + due.fine)}</td>
-                        <td className="px-3 py-2">
-                          <Input
-                            type="number"
-                            min="0"
-                            name={`amount_${row.month}`}
-                            value={settled ? "" : amountFor(row)}
-                            disabled={settled}
-                            onChange={(event) => setEdited((current) => ({ ...current, [row.month]: event.target.value }))}
-                            className="h-9 min-w-24"
-                          />
-                          <p className="mt-1 text-xs text-slate-500">{note}</p>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-slate-200 bg-slate-50">
-                    <td className="px-3 py-2 font-semibold text-navy" colSpan={5}>Total</td>
-                    <td className="px-3 py-2 font-semibold text-navy">{formatPKR(total)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          ) : null}
-          {blockedChosen.length ? (
-            <p className="mt-2 text-xs text-rose-600">
-              {blockedChosen.map((row) => row.label).join(", ")}: {blockedChosen[0].blockedReason}. Remove these months.
-            </p>
-          ) : null}
+          ) : (
+            <>
+              <FeeMonthCards months={fees.months} year={year} paymentDate={paymentDate} selected={selectedKeys} onToggle={toggle} />
+              <p className="mt-2 text-xs text-slate-500">
+                Pick every month this payment covers. Paid and scholarship months are locked. "Not issued" and "Advance" months have no voucher and owe nothing; paying one issues its voucher first.
+              </p>
+            </>
+          )}
         </div>
+
+        {rows.length ? (
+          <div className="sm:col-span-2 overflow-x-auto rounded-xl border border-slate-100">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Voucher</th>
+                  <th className="px-3 py-2">Fee</th>
+                  <th className="px-3 py-2">Paid</th>
+                  <th className="px-3 py-2">Late fee</th>
+                  <th className="px-3 py-2">Due</th>
+                  <th className="px-3 py-2">Amount to pay</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ key, row }) => {
+                  const due = dueOnDate(row, paymentDate);
+                  const state = cardState(row, paymentDate);
+                  const note = !row.feeRecordId
+                    ? "Voucher will be issued with this payment"
+                    : row.fineWaived
+                      ? "Late fee waived"
+                      : due.fine
+                        ? `Includes ${formatPKR(due.fine)} late fee (paid after ${row.dueDate.slice(8)} ${MONTH_NAMES[row.month - 1]})`
+                        : row.lateFeeIfPaidLate && paymentDate <= row.dueDate
+                          ? "No late fee: paid by the due date"
+                          : row.lateFeeNote;
+                  return (
+                    <tr key={key} className="border-t border-slate-100 align-top">
+                      <td className="px-3 py-2 font-medium text-navy">
+                        {row.label}
+                        <input type="hidden" name="period" value={key} />
+                        <button type="button" className="ml-2 align-middle text-slate-400 hover:text-rose-600" onClick={() => toggle(key)} aria-label={`Remove ${row.label}`}>
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                      <td className="px-3 py-2">{formatPKR(row.expected - row.waived)}</td>
+                      <td className="px-3 py-2">{formatPKR(row.paid)}</td>
+                      <td className="px-3 py-2">{due.fine ? formatPKR(due.fine) : "—"}</td>
+                      <td className="px-3 py-2 font-medium">{formatPKR(state.amount)}</td>
+                      <td className="px-3 py-2">
+                        <Input
+                          type="number"
+                          min="0"
+                          name={`amount_${key}`}
+                          value={amountFor(key, row)}
+                          onChange={(event) => setEdited((current) => ({ ...current, [key]: event.target.value }))}
+                          className="h-9 min-w-24"
+                          aria-label={`Amount for ${row.label}`}
+                        />
+                        <p className="mt-1 text-xs text-slate-500">{note}</p>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-slate-200 bg-slate-50">
+                  <td className="px-3 py-2 font-semibold text-navy" colSpan={5}>Total · DR Bank Account / CR Accounts Receivable</td>
+                  <td className="px-3 py-2 font-semibold text-navy">{formatPKR(total)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        ) : studentId ? (
+          <p className="sm:col-span-2 text-xs text-rose-600">Select at least one fee month.</p>
+        ) : null}
+
         <Field label="Payment method">
           <Select name="paymentMethod" required>
             {Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => (
@@ -1140,7 +1358,7 @@ export function PaymentForm({
           <ErrorText>{error}</ErrorText>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={pending || !total || blockedChosen.length > 0}>
+            <Button type="submit" disabled={pending || !total}>
               {pending ? "Saving..." : total ? `Record ${formatPKR(total)}` : "Record payment"}
             </Button>
           </div>
