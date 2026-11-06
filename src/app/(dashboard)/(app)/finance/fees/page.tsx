@@ -5,11 +5,12 @@ import { ImportButton } from "@/components/import-dialog";
 import { importTypesFor } from "@/lib/import/specs";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
-import { ensureCurrentMonthFees } from "@/lib/finance";
+import { latestVoucherMonth, refreshFeeBalances } from "@/lib/finance";
+import { getVoucherClassOptions } from "@/lib/finance-dashboard";
 import { currentMonthYear, formatDate, formatPKR, fullName, monthLabel, MONTH_NAMES } from "@/lib/utils";
 import { PageHeader, EmptyState, ViewOnlyBadge, StatCard, Select, Input } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
-import { RecordPaymentButton } from "@/components/forms";
+import { InitiateVouchersButton, PayStudentButton, RecordPaymentButton } from "@/components/forms";
 import { LateFeeCell } from "@/components/late-fee";
 import { PAYMENT_METHOD_LABELS } from "@/lib/constants";
 
@@ -19,7 +20,7 @@ export default async function FeesPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const user = await requirePermission("fees.view");
-  await ensureCurrentMonthFees();
+  await refreshFeeBalances();
   const params = await searchParams;
   const fallback = currentMonthYear();
   const month = Number(params.month) || fallback.month;
@@ -52,6 +53,9 @@ export default async function FeesPage({
       classLabel: `${record.student.class.name} ${record.student.class.program.name}`,
     }));
 
+  const canRecord = can(user.role, "fees.record");
+  const voucherClasses = canRecord ? await getVoucherClassOptions() : [];
+  const optionById = new Map(students.map((student) => [student.id, student]));
   const payable = records.reduce((sum, record) => sum + record.expectedAmount + (record.fineAmount ?? 0), 0);
   const paid = records.reduce((sum, record) => sum + record.paidAmount, 0);
   const waived = records.reduce((sum, record) => sum + record.waivedAmount, 0);
@@ -75,6 +79,7 @@ export default async function FeesPage({
           can(user.role, "fees.record") ? (
             <>
               {importTypesFor(user.role, ["fees"]).length ? <ImportButton types={["fees"]} label="Import fee collections" /> : null}
+              <InitiateVouchersButton classes={voucherClasses} latest={latestVoucherMonth()} initial={{ month, year }} variant="outline" />
               <RecordPaymentButton students={students} autoOpenOn="pay" />
             </>
           ) : (
@@ -118,6 +123,7 @@ export default async function FeesPage({
                   <th>Last payment</th>
                   <th>Receipt</th>
                   <th>Status</th>
+                  {canRecord ? <th><span className="sr-only">Actions</span></th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -149,6 +155,13 @@ export default async function FeesPage({
                       <td>{last ? `${formatDate(last.paymentDate)} · ${PAYMENT_METHOD_LABELS[last.paymentMethod]}` : "—"}</td>
                       <td>{last?.referenceNumber || last?.id.slice(0, 8) || "—"}</td>
                       <td><FeeBadge status={record.status} /></td>
+                      {canRecord ? (
+                        <td className="whitespace-nowrap">
+                          {record.remainingAmount > 0 && optionById.get(record.student.id) ? (
+                            <PayStudentButton student={optionById.get(record.student.id)!} label={record.paidAmount > 0 ? "Record payment" : "Mark as paid"} />
+                          ) : null}
+                        </td>
+                      ) : null}
                     </tr>
                   );
                 })}
@@ -156,7 +169,10 @@ export default async function FeesPage({
             </table>
           </div>
         ) : (
-          <EmptyState title="No fee records" description="Add students or choose another month. Monthly fee records are generated for the current period automatically." />
+          <EmptyState
+            title={`No fee vouchers for ${monthLabel(month, year)}`}
+            description="Fees are charged when vouchers are initiated. Use Initiate fee vouchers to issue this month's vouchers to every active student (DR Accounts Receivable / CR Fee Income)."
+          />
         )}
       </div>
     </div>

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
-import { ensureCurrentMonthFees } from "@/lib/finance";
+import { refreshFeeBalances } from "@/lib/finance";
 import { currentMonthYear, formatDate, formatPKR, fullName, monthLabel } from "@/lib/utils";
 import { PageHeader, EmptyState, ViewOnlyBadge } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
@@ -12,7 +12,7 @@ import { AdjustFeeButton } from "@/components/finance-records";
 
 export default async function OutstandingPage() {
   const user = await requirePermission("fees.view");
-  await ensureCurrentMonthFees();
+  await refreshFeeBalances();
   const { month, year } = currentMonthYear();
   const recordsRes = await db()
     .from("FeeRecord")

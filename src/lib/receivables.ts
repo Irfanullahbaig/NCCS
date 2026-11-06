@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { ensureCurrentMonthFees } from "@/lib/finance";
+import { refreshFeeBalances } from "@/lib/finance";
 import { isBeforeAdmission, monthKey } from "@/lib/late-fee";
 import type { ResolvedPeriod } from "@/lib/period";
 import { calendarDateInKarachi, fullName, monthLabel } from "@/lib/utils";
@@ -59,7 +59,7 @@ function periodMonths(period: ResolvedPeriod) {
 }
 
 export async function getReceivables(period: ResolvedPeriod) {
-  await ensureCurrentMonthFees();
+  await refreshFeeBalances();
   const months = periodMonths(period);
   const years = [...new Set(months.map((row) => row.year))];
 

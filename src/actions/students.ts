@@ -105,7 +105,7 @@ export async function updateStudent(formData: FormData) {
 
   // The admission date decides which months are charged and whether a late fee applies.
   await recalculateStudentFees(id);
-  await ensureStudentFeeRecord({ studentId: id, userId: user.id });
+  await ensureStudentFeeRecord({ studentId: id, userId: user.id, create: false });
   invalidateFeeMaintenance();
 
   await writeAudit({

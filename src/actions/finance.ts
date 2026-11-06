@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { ExpenseCategory, IncomeCategory, PaymentMethod } from "@/lib/enums";
 import { requirePermission } from "@/lib/auth";
-import { parseDateInput } from "@/lib/utils";
+import { formatPKR, monthLabel, parseDateInput } from "@/lib/utils";
 import {
   adjustFeeRecord,
+  initiateFeeVouchers,
   recordExpense,
   recordIncome,
   recordStudentPayment,
@@ -356,5 +357,27 @@ export async function adjustFeeAction(formData: FormData) {
     return { ok: true as const };
   } catch (error) {
     return fail(error instanceof Error ? error.message : "Unable to adjust the fee");
+  }
+}
+
+export async function initiateVouchersAction(formData: FormData) {
+  const user = await requirePermission("fees.record");
+  try {
+    const month = Number(formData.get("month") ?? 0);
+    const year = Number(formData.get("year") ?? 0);
+    const classId = text(formData, "classId") || null;
+    const result = await initiateFeeVouchers({ month, year, classId, userId: user.id });
+    refreshFinance();
+    revalidatePath("/finance/accounts");
+    const label = monthLabel(result.month, result.year);
+    const message = result.created
+      ? `${result.created} fee voucher${result.created === 1 ? "" : "s"} issued for ${label} (${formatPKR(result.amount)} posted to Accounts Receivable)` +
+        (result.existing ? `. ${result.existing} already had one.` : ".")
+      : result.existing
+        ? `Every student already has a voucher for ${label}. Nothing new was charged.`
+        : `No active students to charge for ${label}.`;
+    return { ok: true as const, created: result.created, message };
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "Unable to initiate fee vouchers");
   }
 }

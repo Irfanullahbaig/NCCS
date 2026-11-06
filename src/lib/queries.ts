@@ -1,11 +1,11 @@
 import { db } from "@/lib/db";
 import { currentMonthYear } from "@/lib/utils";
-import { ensureCurrentMonthFees, ensureStudentFeeRecord } from "@/lib/finance";
+import { refreshFeeBalances, ensureStudentFeeRecord } from "@/lib/finance";
 
 const studentClass = "class:Class(name, program:Program(name))";
 
 export async function getDashboardData() {
-  await ensureCurrentMonthFees();
+  await refreshFeeBalances();
   const { month, year } = currentMonthYear();
 
   const [
@@ -73,7 +73,7 @@ export async function getDashboardData() {
 }
 
 export async function getClassDashboard(classId: string) {
-  await ensureCurrentMonthFees();
+  await refreshFeeBalances();
   const { month, year } = currentMonthYear();
   const schoolClass = await db()
     .from("Class")
@@ -118,7 +118,7 @@ export async function getClassDashboard(classId: string) {
 
 export async function getStudentById(id: string) {
   const { month, year } = currentMonthYear();
-  await ensureStudentFeeRecord({ studentId: id, month, year });
+  await ensureStudentFeeRecord({ studentId: id, month, year, create: false });
   const result = await db()
     .from("Student")
     .select(

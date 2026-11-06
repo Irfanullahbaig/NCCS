@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import { db } from "@/lib/db";
+import { syncLedger } from "@/lib/accounting";
 import {
   SNAPSHOT_VERSION,
   type BackupKind,
@@ -279,6 +280,8 @@ export async function restoreFromFile(sourcePath: string) {
   const safety = await createBackup("pre-restore");
   try {
     await restoreSnapshotData(snapshot.data);
+    // The journal is not part of a backup; it is brought in line with the restored records.
+    await syncLedger();
   } catch (error) {
     const safetyRaw = await fs.readFile(backupPath(safety.filename), "utf8");
     await restoreSnapshotData(parseSnapshotJson(safetyRaw).data).catch(() => undefined);

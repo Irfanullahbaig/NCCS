@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
-import { ensureCurrentMonthFees } from "@/lib/finance";
+import { refreshFeeBalances } from "@/lib/finance";
 import { currentMonthYear, formatDate, formatPKR, fullName } from "@/lib/utils";
 import { Card, PageHeader } from "@/components/ui";
 import { ReportPeriodLaunch, ProgressReportLaunch } from "@/components/report-period";
@@ -39,7 +39,7 @@ export default async function ReportsPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const user = await requirePermission("reports.view");
-  await ensureCurrentMonthFees();
+  await refreshFeeBalances();
   const params = await searchParams;
   const type = params.type;
   const groups = ["Student reports", "Staff reports", "Financial reports"];

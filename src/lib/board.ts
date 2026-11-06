@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { ensureCurrentMonthFees } from "@/lib/finance";
+import { refreshFeeBalances } from "@/lib/finance";
 import { getPeriodFinance, getYearlyMonthTable } from "@/lib/ledger";
 import type { ResolvedPeriod } from "@/lib/period";
 import { STUDENT_TYPE_LABELS } from "@/lib/constants";
@@ -38,7 +38,7 @@ function previousPeriod(period: ResolvedPeriod): ResolvedPeriod {
 }
 
 export async function getBoardOverview(period: ResolvedPeriod, options: { finance: boolean; payroll: boolean }) {
-  await ensureCurrentMonthFees();
+  await refreshFeeBalances();
   const feeMonthFilter = period.mode === "month" && period.month ? period.month : null;
 
   let feeQuery = db()

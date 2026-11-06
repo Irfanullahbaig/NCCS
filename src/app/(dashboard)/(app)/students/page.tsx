@@ -3,7 +3,7 @@ import { ImportButton } from "@/components/import-dialog";
 import { importTypesFor } from "@/lib/import/specs";
 import { can } from "@/lib/permissions";
 import { db } from "@/lib/db";
-import { ensureCurrentMonthFees } from "@/lib/finance";
+import { refreshFeeBalances } from "@/lib/finance";
 import { currentMonthYear, formatPKR, fullName, toDateInput } from "@/lib/utils";
 import { PageHeader, EmptyState, Input, Select } from "@/components/ui";
 import { FeeBadge, TypeBadge } from "@/components/badges";
@@ -18,7 +18,7 @@ export default async function StudentsPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const user = await requirePermission("students.view");
-  await ensureCurrentMonthFees();
+  await refreshFeeBalances();
   const params = await searchParams;
   const { month, year } = currentMonthYear();
 

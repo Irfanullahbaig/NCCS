@@ -17,12 +17,15 @@ import { can } from "@/lib/permissions";
 import { getBoardOverview, type Insight, type InsightTone } from "@/lib/board";
 import { getDashboardData } from "@/lib/queries";
 import { getReceivables } from "@/lib/receivables";
+import { getFinanceDashboard, type FinanceDashboard } from "@/lib/finance-dashboard";
+import { latestVoucherMonth } from "@/lib/finance";
+import { InitiateVouchersButton, RecordPaymentButton } from "@/components/forms";
 import { periodFromParams } from "@/lib/period";
 import { getSchoolName } from "@/lib/school";
 import { cn, formatDate, formatPKR, fullName, MONTH_NAMES } from "@/lib/utils";
 import { PAYMENT_METHOD_LABELS, SCHOOL_NAME } from "@/lib/constants";
 import { Card, Segmented, StatCard } from "@/components/ui";
-import { ClassDistributionChart, EnrollmentChart, FinanceTrendChart, SERIES } from "@/components/board-charts";
+import { ClassDistributionChart, EnrollmentChart, FinanceTrendChart, LedgerTrendChart, SERIES } from "@/components/board-charts";
 
 export default async function DashboardPage({
   searchParams,
@@ -36,12 +39,17 @@ export default async function DashboardPage({
   const showFinance = can(user.role, "finance.analytics");
   const showPayroll = can(user.role, "salaries.view");
   const showReceivables = can(user.role, "fees.view");
-  const [board, recent, schoolName, receivables] = await Promise.all([
+  const showAccounts = can(user.role, "finance.view");
+  const canRecord = can(user.role, "fees.record");
+  const [board, recent, schoolName, receivables, accounts] = await Promise.all([
     getBoardOverview(period, { finance: showFinance, payroll: showPayroll }),
     getDashboardData(),
     getSchoolName(),
     showReceivables ? getReceivables(period) : null,
+    showAccounts ? getFinanceDashboard(period) : null,
   ]);
+  // With the journal in place, the finance sections are built from it.
+  const ledger = accounts?.ready ? accounts : null;
   const { students, staff, classes, fees, finance, payroll } = board;
   const month = period.month ?? new Date().getMonth() + 1;
   const scope = period.mode === "year" ? `in ${period.year}` : `in ${period.label}`;
@@ -83,8 +91,8 @@ export default async function DashboardPage({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Segmented
           options={[
-            { label: "Monthly", href: `/?period=month&month=${month}&year=${period.year}`, active: period.mode === "month" },
-            { label: "Yearly", href: `/?period=year&year=${period.year}`, active: period.mode === "year" },
+            { label: "Monthly", href: `/dashboard?period=month&month=${month}&year=${period.year}`, active: period.mode === "month" },
+            { label: "Yearly", href: `/dashboard?period=year&year=${period.year}`, active: period.mode === "year" },
           ]}
         />
         <form action="/dashboard" className="flex flex-wrap items-center gap-2">
@@ -142,6 +150,10 @@ export default async function DashboardPage({
         />
       </div>
 
+      {ledger ? (
+        <LedgerSections data={ledger} canRecord={canRecord} insights={board.insights} />
+      ) : (
+        <>
       {/* Financial overview */}
       <Card title="Financial overview" subtitle={`Totals ${scope}${finance ? `, compared with the previous ${period.mode === "year" ? "year" : "month"}` : ""}`}>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -177,6 +189,8 @@ export default async function DashboardPage({
           )}
         </div>
       </Card>
+
+      {accounts && !accounts.ready ? <JournalNotice /> : null}
 
       {/* Receivables */}
       {receivables ? (
@@ -225,6 +239,8 @@ export default async function DashboardPage({
           </ul>
         </Card>
       </div>
+        </>
+      )}
 
       {/* Students */}
       <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
@@ -273,7 +289,7 @@ export default async function DashboardPage({
             </div>
           ) : null}
         </Card>
-        <Card title="Fee status" subtitle={`Student fee records ${scope}`}>
+        {ledger ? null : <Card title="Fee status" subtitle={`Student fee records ${scope}`}>
           <div className="space-y-4">
             <Meter label="Paid in full" value={fees.paid} total={fees.paid + fees.partial + fees.pending + fees.overdue + fees.waivedCount} color={SERIES.green} />
             <Meter label="Part paid" value={fees.partial} total={fees.paid + fees.partial + fees.pending + fees.overdue + fees.waivedCount} color={SERIES.blue} />
@@ -284,8 +300,8 @@ export default async function DashboardPage({
           <p className="mt-5 text-xs text-slate-500">
             {formatPKR(fees.waived)} waived · {formatPKR(fees.lateFees)} in late fees charged
           </p>
-        </Card>
-        <Card title="Largest outstanding balances" subtitle="Across all fee months" className="lg:col-span-2 xl:col-span-1" action={<Link href="/finance/outstanding" className="text-sm font-medium text-orange">View all</Link>}>
+        </Card>}
+        <Card title="Largest outstanding balances" subtitle="Across all fee months" className={ledger ? "xl:col-span-2" : "lg:col-span-2 xl:col-span-1"} action={<Link href="/finance/outstanding" className="text-sm font-medium text-orange">View all</Link>}>
           {board.defaulters.length ? (
             <ul className="divide-y divide-slate-100">
               {board.defaulters.map((row) => (
@@ -383,7 +399,7 @@ export default async function DashboardPage({
 
       {/* Recent activity */}
       <div className="grid gap-5 xl:grid-cols-2">
-        <Card title="Recent fee payments" action={<Link href="/finance/fees" className="text-sm font-medium text-orange">View all</Link>}>
+        {ledger ? null : <Card title="Recent fee payments" action={<Link href="/finance/fees" className="text-sm font-medium text-orange">View all</Link>}>
           <ActivityList
             empty="No payments recorded yet."
             rows={recent.recentPayments.filter((payment) => payment.student).map((payment) => ({
@@ -393,8 +409,8 @@ export default async function DashboardPage({
               value: formatPKR(payment.amount),
             }))}
           />
-        </Card>
-        <Card title="Recently added" action={<Link href="/students" className="text-sm font-medium text-orange">Students</Link>}>
+        </Card>}
+        <Card title="Recently added" className={ledger ? "xl:col-span-2" : undefined} action={<Link href="/students" className="text-sm font-medium text-orange">Students</Link>}>
           <ActivityList
             empty="No students or staff added yet."
             rows={[
@@ -421,6 +437,184 @@ export default async function DashboardPage({
         </Card>
       </div>
     </div>
+  );
+}
+
+function JournalNotice() {
+  return (
+    <Card title="Accounts" subtitle="Accounts Receivable and Bank Account">
+      <p className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-800">
+        The accounting journal is not set up in the database yet. Run the migration
+        <code className="mx-1 rounded bg-white px-1">20261106000000_journal_entries.sql</code>
+        and the dashboard&apos;s finance figures will be built from it, starting with every fee and payment already recorded.
+      </p>
+    </Card>
+  );
+}
+
+/** Finance sections built from the double-entry journal. */
+function LedgerSections({ data, canRecord, insights }: { data: FinanceDashboard; canRecord: boolean; insights: Insight[] }) {
+  const { current, previous, balances, vouchers, outstanding } = data;
+  const voucherTotal = vouchers.generated || 1;
+  const ageTotal = outstanding.byAge.reduce((sum, row) => sum + row.amount, 0);
+  return (
+    <>
+      <Card
+        title="Finance"
+        subtitle={`${data.periodLabel} · every figure is calculated from the accounting journal`}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            {canRecord ? <InitiateVouchersButton classes={data.classes} latest={latestVoucherMonth()} size="sm" /> : null}
+            {canRecord ? <RecordPaymentButton students={data.students} label="Record payment" size="sm" variant="outline" /> : null}
+            <Link href="/finance/accounts" className="text-sm font-medium text-orange">Open accounts</Link>
+          </div>
+        }
+      >
+        {canRecord && !data.issuedThisMonth ? (
+          <p className="mb-4 flex items-start gap-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            Fee vouchers for {data.currentMonthLabel} have not been initiated yet, so nothing has been charged for this month.
+          </p>
+        ) : null}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <MoneyTile
+            label="Total income"
+            value={current.totalIncome}
+            previous={previous.totalIncome}
+            goodWhenUp
+            note={`${formatPKR(current.feeIncome)} fee income from vouchers${current.otherIncome ? ` · ${formatPKR(current.otherIncome)} other` : ""}`}
+            href="/finance/accounts?account=FEE_INCOME#journal"
+          />
+          <MoneyTile
+            label="Total collections"
+            value={current.collections}
+            previous={previous.collections}
+            goodWhenUp
+            note={`Payments received from students in ${data.periodLabel}`}
+            tone="good"
+            href="/finance/accounts?kind=FEE_PAYMENT#journal"
+          />
+          <MoneyTile
+            label="Accounts Receivable"
+            value={balances.receivable}
+            note={`Outstanding today · ${outstanding.studentsOwing} student${outstanding.studentsOwing === 1 ? "" : "s"} owe`}
+            tone="bad"
+            href="/finance/accounts#students"
+          />
+          <MoneyTile
+            label="Bank balance"
+            value={balances.bank}
+            note={`${formatPKR(balances.bankIn)} received · ${formatPKR(balances.bankOut)} paid out`}
+            highlight
+            href="/finance/accounts?account=BANK#journal"
+          />
+        </div>
+        <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+          <span>Expenses in {data.periodLabel}: <strong className="text-navy">{formatPKR(current.expenses)}</strong></span>
+          <span>{balances.entries.toLocaleString("en-PK")} journal entries</span>
+          <span className={balances.balanced ? "text-teal" : "text-rose-700"}>
+            {balances.balanced ? "✓ Debits equal credits" : "Debits and credits differ"} ({formatPKR(balances.totalDebit)})
+          </span>
+        </p>
+      </Card>
+
+      <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
+        <Card title="Fee vouchers" subtitle={`Vouchers for ${data.periodLabel}`} action={<Link href="/finance/fees" className="text-sm font-medium text-orange">View all</Link>}>
+          {vouchers.generated ? (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <MiniStat label="Generated" value={vouchers.generated} />
+                <MiniStat label="Paid" value={vouchers.paid} total={vouchers.generated} />
+                <MiniStat label="Partially paid" value={vouchers.partial} total={vouchers.generated} />
+                <MiniStat label="Unpaid" value={vouchers.unpaid} total={vouchers.generated} />
+              </div>
+              <div className="mt-4 space-y-3">
+                <Meter label="Paid" value={vouchers.paid} total={voucherTotal} color={SERIES.green} />
+                <Meter label="Partially paid" value={vouchers.partial} total={voucherTotal} color={SERIES.blue} />
+                <Meter label={`Unpaid${vouchers.overdue ? ` (${vouchers.overdue} overdue)` : ""}`} value={vouchers.unpaid} total={voucherTotal} color={SERIES.orange} />
+                {vouchers.waived ? <Meter label="Scholarship (waived)" value={vouchers.waived} total={voucherTotal} color="#d6d0c9" /> : null}
+              </div>
+              <p className="mt-4 text-xs text-slate-500">
+                {formatPKR(vouchers.issued)} issued · {formatPKR(vouchers.collected)} paid · {formatPKR(vouchers.outstanding)} outstanding
+              </p>
+            </>
+          ) : (
+            <p className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+              No fee vouchers have been issued for {data.periodLabel}.
+            </p>
+          )}
+        </Card>
+
+        <Card title="Outstanding fees" subtitle="What students still owe, across all months" action={<Link href="/finance/accounts#students" className="text-sm font-medium text-orange">Student-wise</Link>}>
+          <p className={cn("text-2xl font-bold tracking-tight", balances.receivable > 0 ? "text-rose-700" : "text-navy")}>{formatPKR(balances.receivable)}</p>
+          <div className="mt-4 space-y-3">
+            {outstanding.byAge.map((row, index) => (
+              <div key={row.label}>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">{row.label} <span className="text-xs text-slate-400">({row.count} voucher{row.count === 1 ? "" : "s"})</span></span>
+                  <span className="font-semibold text-navy">{formatPKR(row.amount)}</span>
+                </div>
+                <Bar value={row.amount} total={ageTotal} color={[SERIES.blue, SERIES.orange, "#be123c"][index]} />
+              </div>
+            ))}
+          </div>
+          {outstanding.byClass.length ? (
+            <ul className="mt-4 divide-y divide-slate-100 border-t border-slate-100 text-sm">
+              {outstanding.byClass.slice(0, 5).map((row) => (
+                <li key={row.label} className="flex items-center justify-between gap-3 py-2">
+                  <span className="min-w-0 truncate text-slate-600">{row.label} <span className="text-xs text-slate-400">· {row.students} student{row.students === 1 ? "" : "s"}</span></span>
+                  <span className="shrink-0 font-semibold text-navy">{formatPKR(row.amount)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-4 rounded-2xl bg-sage px-4 py-4 text-center text-sm text-teal">Every student is fully paid up.</p>
+          )}
+        </Card>
+
+        <Card title="Recent transactions" subtitle="Latest vouchers and payments" className="lg:col-span-2 xl:col-span-1" action={<Link href="/finance/accounts#journal" className="text-sm font-medium text-orange">Journal</Link>}>
+          {data.recent.length ? (
+            <ul className="divide-y divide-slate-100">
+              {data.recent.map((row) => (
+                <li key={row.key}>
+                  <Link href={row.href} className="flex items-start gap-3 py-2.5 hover:opacity-80">
+                    <span
+                      className={cn(
+                        "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                        row.kind === "PAYMENT" ? "bg-sage text-teal" : row.kind === "VOUCHERS" ? "bg-peach text-orange" : "bg-slate-100 text-slate-500",
+                      )}
+                    >
+                      {row.kind === "PAYMENT" ? <ArrowDownRight className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-navy">{row.title}</span>
+                      <span className="block truncate text-xs text-slate-500">{formatDate(row.date)} · {row.detail}</span>
+                      <span className="block truncate text-xs text-slate-400">{row.recordedBy ?? "System"}</span>
+                    </span>
+                    <span className={cn("shrink-0 text-sm font-semibold", row.kind === "PAYMENT" ? "text-teal" : "text-navy")}>{formatPKR(row.amount)}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-slate-500">No vouchers or payments yet.</p>
+          )}
+        </Card>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-3">
+        <Card className="xl:col-span-2">
+          <LedgerTrendChart months={data.months} year={data.year} receivableNow={balances.receivable} />
+        </Card>
+        <Card title="Key insights & alerts" subtitle="What needs management's attention">
+          <ul className="space-y-2.5">
+            {insights.slice(0, 6).map((insight, index) => (
+              <InsightRow key={`${insight.title}-${index}`} insight={insight} />
+            ))}
+          </ul>
+        </Card>
+      </div>
+    </>
   );
 }
 

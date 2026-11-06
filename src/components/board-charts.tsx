@@ -6,7 +6,9 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
   LabelList,
+  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -166,6 +168,54 @@ export function FinanceTrendChart({ money, fees, year, showMoney }: { money: Mon
                 </>
               )}
             </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type LedgerMonth = { label: string; income: number; collections: number; expenses: number; receivable: number };
+const RECEIVABLE_COLOR = "#1f2622";
+
+/** Income, collections and expenses per month from the journal, with Accounts Receivable at each month end. */
+export function LedgerTrendChart({ months, year, receivableNow }: { months: LedgerMonth[]; year: number; receivableNow: number }) {
+  const mounted = useMounted();
+  const total = (key: "income" | "collections" | "expenses") => months.reduce((sum, row) => sum + row[key], 0);
+  const empty = !months.some((row) => row.income || row.collections || row.expenses || row.receivable);
+  return (
+    <div>
+      <div>
+        <h2 className="text-base font-semibold text-navy">Financial overview</h2>
+        <p className="text-xs text-slate-500">Income, collections and expenses each month of {year}, and Accounts Receivable at month end. From the accounting journal.</p>
+      </div>
+      <div className="mt-4">
+        <Legend
+          items={[
+            { color: SERIES.green, label: "Income", value: formatPKR(total("income")) },
+            { color: SERIES.blue, label: "Collections", value: formatPKR(total("collections")) },
+            { color: SERIES.orange, label: "Expenses", value: formatPKR(total("expenses")) },
+            { color: RECEIVABLE_COLOR, label: "Receivables now", value: formatPKR(receivableNow) },
+          ]}
+        />
+      </div>
+      <div className="mt-3 h-64 sm:h-72">
+        {!mounted ? (
+          <Placeholder className="h-full" />
+        ) : empty ? (
+          <div className="flex h-full items-center justify-center rounded-2xl bg-slate-50 text-sm text-slate-500">No journal entries for {year} yet.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={months} barGap={2} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke={grid} vertical={false} />
+              <XAxis dataKey="label" tick={tick} axisLine={false} tickLine={false} />
+              <YAxis tick={tick} axisLine={false} tickLine={false} width={44} tickFormatter={compact} />
+              <Tooltip cursor={{ fill: "rgba(224,123,69,0.08)", radius: 8 }} content={<ChartTooltip />} />
+              <Bar dataKey="income" name="Income" fill={SERIES.green} radius={[4, 4, 0, 0]} maxBarSize={14} />
+              <Bar dataKey="collections" name="Collections" fill={SERIES.blue} radius={[4, 4, 0, 0]} maxBarSize={14} />
+              <Bar dataKey="expenses" name="Expenses" fill={SERIES.orange} radius={[4, 4, 0, 0]} maxBarSize={14} />
+              <Line dataKey="receivable" name="Receivables (month end)" type="monotone" stroke={RECEIVABLE_COLOR} strokeWidth={2} dot={{ r: 2.5 }} />
+            </ComposedChart>
           </ResponsiveContainer>
         )}
       </div>

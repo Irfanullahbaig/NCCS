@@ -21,6 +21,7 @@ import {
 } from "@/lib/late-fee";
 import { nextExpenseId, nextIncomeId } from "@/lib/ids";
 import { writeAudit } from "@/lib/audit";
+import { syncLedger } from "@/lib/accounting";
 
 type FeeRecordRow = Database["public"]["Tables"]["FeeRecord"]["Row"];
 type FeeRecordWithContext = FeeRecordRow & {
@@ -106,7 +107,10 @@ async function loadFeeRecord(feeRecordId: string) {
 export async function recalculateFeeRecord(feeRecordId: string) {
   const record = await loadFeeRecord(feeRecordId);
   if (!record) throw new Error("Fee record not found");
-  return syncFeeRecord(record, await getLateFeePolicy());
+  const synced = await syncFeeRecord(record, await getLateFeePolicy());
+  // Charge (DR Receivable / CR Fee Income) and its payments (DR Bank / CR Receivable).
+  await syncLedger({ feeRecordIds: [feeRecordId] });
+  return synced;
 }
 
 /** Used after a student's admission date or late-fee settings change. */
@@ -117,6 +121,7 @@ export async function recalculateStudentFees(studentId: string) {
   for (const record of (data ?? []) as FeeRecordWithContext[]) {
     await syncFeeRecord(record, policy);
   }
+  await syncLedger({ feeRecordIds: (data ?? []).map((record) => record.id) });
 }
 
 /** Full pass over every fee record, for when the late-fee settings change. */
@@ -129,6 +134,7 @@ export async function recalculateAllFees() {
     await Promise.all(records.slice(index, index + 10).map((record) => syncFeeRecord(record, policy)));
   }
   invalidateFeeMaintenance();
+  await syncLedger();
 }
 
 /**
@@ -160,6 +166,8 @@ export async function ensureStudentFeeRecord(input: {
   userId?: string | null;
   /** Throw instead of returning null when the month is before the student joined. */
   strict?: boolean;
+  /** False only brings an existing voucher up to date and never issues a new one. */
+  create?: boolean;
 }): Promise<FeeRecordRow | null> {
   const { month, year } = input.month && input.year ? { month: input.month, year: input.year } : currentMonthYear();
   const policy = await getLateFeePolicy();
@@ -172,7 +180,12 @@ export async function ensureStudentFeeRecord(input: {
     .eq("month", month)
     .maybeSingle();
   if (existing.error) throw existing.error;
-  if (existing.data) return syncFeeRecord(existing.data as FeeRecordWithContext, policy);
+  if (existing.data) {
+    const synced = await syncFeeRecord(existing.data as FeeRecordWithContext, policy);
+    await syncLedger({ feeRecordIds: [synced.id] }, input.userId);
+    return synced;
+  }
+  if (input.create === false) return null;
 
   const student = await db()
     .from("Student")
@@ -228,6 +241,8 @@ export async function ensureStudentFeeRecord(input: {
     .select()
     .single();
   if (created.error) throw created.error;
+  // DR Accounts Receivable / CR Fee Income for the new fee.
+  await syncLedger({ feeRecordIds: [created.data.id] }, input.userId);
   return created.data;
 }
 
@@ -239,26 +254,71 @@ export function invalidateFeeMaintenance() {
   feeMaintenanceAt = 0;
 }
 
-export async function ensureCurrentMonthFees(userId?: string | null) {
+/**
+ * Keeps issued fee vouchers current: late fees, statuses and their journal
+ * postings. It never issues new vouchers; that only happens when someone
+ * initiates them (see initiateFeeVouchers) or records a payment for a month.
+ */
+export async function refreshFeeBalances() {
   const now = Date.now();
   if (feeMaintenance) return feeMaintenance;
   if (now - feeMaintenanceAt < FEE_MAINTENANCE_MS) return;
-  feeMaintenance = runFeeMaintenance(userId).finally(() => {
+  feeMaintenance = runFeeMaintenance().finally(() => {
     feeMaintenance = null;
     feeMaintenanceAt = Date.now();
   });
   return feeMaintenance;
 }
 
-async function runFeeMaintenance(userId?: string | null) {
+async function runFeeMaintenance() {
+  await syncOpenFeeRecords();
+  // Late fees reach the journal here.
+  await syncLedger();
+}
+
+/** Months vouchers can be initiated for: any past month, the current one and the next one. */
+export function latestVoucherMonth() {
   const { month, year } = currentMonthYear();
+  return month === 12 ? { month: 1, year: year + 1 } : { month: month + 1, year };
+}
+
+export type VoucherRunResult = {
+  month: number;
+  year: number;
+  /** Vouchers issued now. */
+  created: number;
+  /** Students who already had a voucher for the month. */
+  existing: number;
+  /** Students admitted after the month, who are not charged for it. */
+  notYetAdmitted: number;
+  /** Total charged by the new vouchers (DR Accounts Receivable / CR Fee Income). */
+  amount: number;
+};
+
+/**
+ * Issues the monthly fee voucher to every active student (optionally one
+ * class) who does not have one for that month yet. Each new voucher posts
+ * DR Accounts Receivable / CR Fee Income. Running it again only issues the
+ * vouchers that are still missing, so nothing is charged twice.
+ */
+export async function initiateFeeVouchers(input: { month: number; year: number; classId?: string | null; userId: string }): Promise<VoucherRunResult> {
+  const { month, year } = input;
+  if (!Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year) || year < 2000) {
+    throw new Error("Select the fee month and year");
+  }
+  const latest = latestVoucherMonth();
+  if (year * 12 + month > latest.year * 12 + latest.month) {
+    throw new Error(`Vouchers can be initiated up to ${monthLabel(latest.month, latest.year)}.`);
+  }
   const policy = await getLateFeePolicy();
+  let studentsQuery = db()
+    .from("Student")
+    .select("id, classId, feeAmount, studentType, dateOfAdmission, class:Class(academicYearId)")
+    .is("deletedAt", null)
+    .eq("status", "ACTIVE");
+  if (input.classId) studentsQuery = studentsQuery.eq("classId", input.classId);
   const [studentsRes, existingRes] = await Promise.all([
-    db()
-      .from("Student")
-      .select("id, classId, feeAmount, studentType, dateOfAdmission, class:Class(academicYearId)")
-      .is("deletedAt", null)
-      .eq("status", "ACTIVE"),
+    studentsQuery,
     db().from("FeeRecord").select("studentId").eq("month", month).eq("year", year),
   ]);
   if (studentsRes.error) throw studentsRes.error;
@@ -267,10 +327,18 @@ async function runFeeMaintenance(userId?: string | null) {
   const have = new Set((existingRes.data ?? []).map((row) => row.studentId));
   const dueDate = feeDueDate(year, month);
   const stamp = nowIso();
+  let existing = 0;
+  let notYetAdmitted = 0;
   const missing = (studentsRes.data ?? []).flatMap((student) => {
-    if (have.has(student.id) || !student.class) return [];
-    // A student whose admission date is in a later month has no fee yet.
-    if (isBeforeAdmission(year, month, student.dateOfAdmission)) return [];
+    if (have.has(student.id)) {
+      existing += 1;
+      return [];
+    }
+    if (!student.class) return [];
+    if (isBeforeAdmission(year, month, student.dateOfAdmission)) {
+      notYetAdmitted += 1;
+      return [];
+    }
     const expected = student.feeAmount;
     const waived = student.studentType === "SCHOLARSHIP" ? expected : 0;
     const state = computeFeeState({
@@ -298,15 +366,40 @@ async function runFeeMaintenance(userId?: string | null) {
       dueDate: dueDate.toISOString(),
       createdAt: stamp,
       updatedAt: stamp,
-      createdById: userId ?? null,
-      updatedById: userId ?? null,
+      createdById: input.userId,
+      updatedById: input.userId,
     }];
   });
-  if (missing.length) {
-    const inserted = await db().from("FeeRecord").insert(missing);
-    if (inserted.error) throw inserted.error;
+
+  for (let index = 0; index < missing.length; index += 200) {
+    const inserted = await db().from("FeeRecord").insert(missing.slice(index, index + 200));
+    if (inserted.error) {
+      // Another accountant issued some of these at the same moment; the unique month index stops duplicates.
+      if (inserted.error.code === "23505") throw new Error("Vouchers for this month were just initiated by someone else. Refresh and try again.");
+      throw inserted.error;
+    }
   }
-  await syncOpenFeeRecords();
+  if (missing.length) {
+    // DR Accounts Receivable / CR Fee Income for each new voucher.
+    await syncLedger({ feeRecordIds: missing.map((row) => row.id) }, input.userId);
+  }
+  invalidateFeeMaintenance();
+
+  const result: VoucherRunResult = {
+    month,
+    year,
+    created: missing.length,
+    existing,
+    notYetAdmitted,
+    amount: missing.reduce((sum, row) => sum + Math.max(0, row.expectedAmount - row.waivedAmount) + row.fineAmount, 0),
+  };
+  await writeAudit({
+    userId: input.userId,
+    action: "FEE_VOUCHERS_INITIATED",
+    entityType: "FeeRecord",
+    details: { ...result, classId: input.classId ?? null },
+  });
+  return result;
 }
 
 export type FeeMonthState = {
@@ -653,6 +746,7 @@ export async function recordIncome(input: {
     .select()
     .single();
   if (income.error) throw income.error;
+  await syncLedger({ incomeIds: [income.data.id] }, input.userId);
 
   await writeAudit({
     userId: input.userId,
@@ -699,6 +793,7 @@ export async function recordExpense(input: {
     .select()
     .single();
   if (expense.error) throw expense.error;
+  await syncLedger({ expenseIds: [expense.data.id] }, input.userId);
 
   await writeAudit({
     userId: input.userId,
@@ -738,6 +833,7 @@ export async function voidIncome(input: { id: string; reason: string; userId: st
     })
     .eq("id", income.data.id);
   if (error) throw error;
+  await syncLedger({ incomeIds: [income.data.id] }, input.userId);
 
   await writeAudit({
     userId: input.userId,
@@ -779,6 +875,7 @@ export async function voidExpense(input: { id: string; reason: string; userId: s
     })
     .eq("id", expense.data.id);
   if (error) throw error;
+  await syncLedger({ expenseIds: [expense.data.id] }, input.userId);
 
   await writeAudit({
     userId: input.userId,
@@ -994,6 +1091,7 @@ export async function updateIncome(input: {
     .update({ ...after, updatedAt: nowIso(), updatedById: input.userId })
     .eq("id", income.data.id);
   if (error) throw error;
+  await syncLedger({ incomeIds: [income.data.id] }, input.userId);
   await writeAudit({
     userId: input.userId,
     action: "INCOME_EDITED",
@@ -1064,6 +1162,7 @@ export async function updateExpense(input: {
     .update({ ...after, updatedAt: nowIso(), updatedById: input.userId })
     .eq("id", expense.data.id);
   if (error) throw error;
+  await syncLedger({ expenseIds: [expense.data.id] }, input.userId);
   await writeAudit({
     userId: input.userId,
     action: "EXPENSE_EDITED",

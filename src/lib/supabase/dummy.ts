@@ -34,6 +34,7 @@ const TABLES = [
   "SalaryRecord",
   "SalaryPayment",
   "AuditLog",
+  "JournalEntry",
 ] as const;
 
 const BELONGS_TO: Record<string, Record<string, { table: string; fk: string }>> = {
@@ -63,6 +64,7 @@ const BELONGS_TO: Record<string, Record<string, { table: string; fk: string }>> 
   SalaryRecord: { staff: { table: "Staff", fk: "staffId" } },
   SalaryPayment: { staff: { table: "Staff", fk: "staffId" }, salaryRecord: { table: "SalaryRecord", fk: "salaryRecordId" } },
   AuditLog: { user: { table: "User", fk: "userId" } },
+  JournalEntry: { student: { table: "Student", fk: "studentId" }, createdBy: { table: "User", fk: "createdById" } },
 };
 
 const HAS_MANY: Record<string, Record<string, { table: string; fk: string }>> = {
@@ -247,6 +249,7 @@ class DummyQuery {
   private orderColumn?: string;
   private ascending = true;
   private limitCount?: number;
+  private offset = 0;
   private mode: "many" | "single" | "maybe" = "many";
   private countExact = false;
   private head = false;
@@ -339,6 +342,12 @@ class DummyQuery {
     return this;
   }
 
+  range(from: number, to: number) {
+    this.offset = from;
+    this.limitCount = to - from + 1;
+    return this;
+  }
+
   maybeSingle() {
     this.mode = "maybe";
     return this;
@@ -365,6 +374,17 @@ class DummyQuery {
           if (this.table === "User" && row.isActive == null) row.isActive = true;
           if (this.table === "Staff" && row.facultyType == null) row.facultyType = "PERMANENT";
           if (row.createdAt == null) row.createdAt = new Date().toISOString();
+        }
+        if (this.table === "JournalEntry") {
+          // Mirrors the database: one posting per source and revision, and numbered in order.
+          const rows = this.store.JournalEntry;
+          for (const row of this.payload) {
+            if (rows.some((other) => other.sourceType === row.sourceType && other.sourceId === row.sourceId && other.revision === row.revision)) {
+              return { data: null, error: { ...asError("duplicate key value violates unique constraint \"JournalEntry_source_revision_key\""), code: "23505" }, count: null, status: 409, statusText: "Conflict" };
+            }
+          }
+          let next = rows.reduce((max, row) => Math.max(max, Number(row.entryNo) || 0), 0);
+          for (const row of this.payload) row.entryNo = ++next;
         }
         this.store[this.table].push(...this.payload);
         this.persist();
@@ -396,7 +416,9 @@ class DummyQuery {
           return this.ascending ? result : -result;
         });
       }
-      if (this.limitCount != null) rows = rows.slice(0, this.limitCount);
+      if (this.offset || this.limitCount != null) {
+        rows = rows.slice(this.offset, this.limitCount != null ? this.offset + this.limitCount : undefined);
+      }
       const data = this.head ? null : this.shape(rows);
       return this.finish(data, matched.length);
     } catch (error) {

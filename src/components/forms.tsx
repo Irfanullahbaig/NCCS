@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Search, X } from "lucide-react";
 import { createClass, createProgram, createSubject, deleteClass, deleteSubject, updateClass, updateSubject } from "@/actions/classes";
-import { createExpenseAction, createIncomeAction, recordPaymentAction } from "@/actions/finance";
+import { createExpenseAction, createIncomeAction, initiateVouchersAction, recordPaymentAction } from "@/actions/finance";
 import { recordSalaryPaymentAction, updateSalaryPaymentAction } from "@/actions/salary";
 import { createStaff, updateStaff } from "@/actions/staff";
 import { createStudent, deleteStudent, updateStudent } from "@/actions/students";
@@ -1260,17 +1260,134 @@ export function RecordPaymentButton({
   presetStudentId,
   label = "Record payment",
   autoOpenOn,
+  size,
+  variant,
 }: {
   students: StudentOption[];
   presetStudentId?: string;
   label?: string;
   autoOpenOn?: string;
+  size?: "sm" | "md" | "lg";
+  variant?: "primary" | "secondary" | "ghost" | "danger" | "outline";
 }) {
   const { open, show, close } = useAutoOpen(autoOpenOn);
   return (
     <>
-      <Button onClick={show}>{label}</Button>
+      <Button onClick={show} size={size} variant={variant}>{label}</Button>
       <PaymentForm open={open} onClose={close} students={students} presetStudentId={presetStudentId} />
+    </>
+  );
+}
+
+/**
+ * Per-row "Record payment" for tables. The form (and its fee lookup) is only
+ * mounted once the button is pressed, so a long table stays light.
+ */
+export function PayStudentButton({ student, label = "Record payment" }: { student: StudentOption; label?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)} aria-label={`${label} for ${student.name}`}>
+        {label}
+      </Button>
+      {open ? <PaymentForm open onClose={() => setOpen(false)} students={[student]} presetStudentId={student.id} /> : null}
+    </>
+  );
+}
+
+export type VoucherClassOption = { id: string; label: string; students: number };
+
+/**
+ * "Initiate Fee Vouchers": issues the month's fee voucher to every active
+ * student (or one class). Each voucher posts DR Accounts Receivable / CR Fee
+ * Income; students who already have one for the month are skipped.
+ */
+export function InitiateVouchersButton({
+  classes,
+  latest,
+  initial,
+  size,
+  variant,
+}: {
+  classes: VoucherClassOption[];
+  /** The latest month vouchers can be issued for. */
+  latest: { month: number; year: number };
+  /** Month the form opens on; the current month when left out. */
+  initial?: { month: number; year: number };
+  size?: "sm" | "md" | "lg";
+  variant?: "primary" | "secondary" | "ghost" | "danger" | "outline";
+}) {
+  const router = useRouter();
+  const now = new Date();
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [month, setMonth] = useState(initial?.month ?? now.getMonth() + 1);
+  const [year, setYear] = useState(initial?.year ?? now.getFullYear());
+  const [classId, setClassId] = useState("");
+  const tooLate = year * 12 + month > latest.year * 12 + latest.month;
+  const students = classId ? classes.find((row) => row.id === classId)?.students ?? 0 : classes.reduce((sum, row) => sum + row.students, 0);
+  return (
+    <>
+      <Button size={size} variant={variant} onClick={() => { setError(null); setOpen(true); }}>Initiate fee vouchers</Button>
+      <Modal open={open} onClose={() => setOpen(false)} title="Initiate fee vouchers">
+        <form
+          className="grid gap-4 sm:grid-cols-3"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (tooLate) return;
+            setPending(true);
+            setError(null);
+            const result = await initiateVouchersAction(new FormData(event.currentTarget));
+            setPending(false);
+            if (!result.ok) {
+              setError(result.error);
+              toast.error(result.error);
+              return;
+            }
+            if (result.created) toast.success(result.message);
+            else toast.info(result.message);
+            setOpen(false);
+            router.refresh();
+          }}
+        >
+          <Field label="Fee month">
+            <Select name="month" value={month} onChange={(event) => setMonth(Number(event.target.value))} required>
+              {MONTH_NAMES.map((label, index) => (
+                <option key={label} value={index + 1}>{label}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Fee year">
+            <Input type="number" name="year" min="2000" value={year} onChange={(event) => setYear(Number(event.target.value))} required />
+          </Field>
+          <Field label="Class">
+            <Select name="classId" value={classId} onChange={(event) => setClassId(event.target.value)}>
+              <option value="">All classes</option>
+              {classes.map((row) => (
+                <option key={row.id} value={row.id}>{row.label} ({row.students})</option>
+              ))}
+            </Select>
+          </Field>
+          <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600 sm:col-span-3">
+            <p>
+              Issues the {MONTH_NAMES[month - 1]} {year} fee voucher to {students} active student{students === 1 ? "" : "s"}
+              {classId ? " in this class" : ""} at each student&apos;s monthly fee. Students who already have a voucher for the month are skipped, so nothing is charged twice.
+            </p>
+            <p className="mt-2 font-medium text-navy">Each voucher posts: DR Accounts Receivable · CR Fee Income</p>
+            {tooLate ? (
+              <p className="mt-2 text-rose-700">Vouchers can be initiated up to {MONTH_NAMES[latest.month - 1]} {latest.year}.</p>
+            ) : null}
+          </div>
+          <div className="space-y-3 sm:col-span-3">
+            <ErrorText>{error}</ErrorText>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={pending || tooLate || !students}>{pending ? "Issuing..." : "Issue vouchers"}</Button>
+            </div>
+          </div>
+        </form>
+      </Modal>
     </>
   );
 }

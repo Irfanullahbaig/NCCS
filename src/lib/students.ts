@@ -2,7 +2,7 @@ import type { Gender, StudentStatus, StudentType } from "@/lib/enums";
 import { db, newId, nowIso } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { nextStudentRegNo } from "@/lib/ids";
-import { ensureStudentFeeRecord, invalidateFeeMaintenance } from "@/lib/finance";
+import { invalidateFeeMaintenance } from "@/lib/finance";
 
 /** Shared by the Add student form and CSV import, so both save students the same way. */
 export async function createStudentRecord(input: {
@@ -50,7 +50,6 @@ export async function createStudentRecord(input: {
     .single();
   if (student.error) throw student.error;
 
-  await ensureStudentFeeRecord({ studentId: student.data.id, userId: input.userId });
   invalidateFeeMaintenance();
   await writeAudit({
     userId: input.userId,

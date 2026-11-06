@@ -1,6 +1,7 @@
 import type { ExpenseCategory, Gender, IncomeCategory, PaymentMethod, StudentStatus, StudentType } from "@/lib/enums";
 import { db } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
+import { syncLedger } from "@/lib/accounting";
 import {
   adjustFeeRecord,
   getStudentFeeMonths,
@@ -691,6 +692,8 @@ export async function runImport(type: ImportType, text: string, fileName: string
             : entry,
       );
       result.failed = result.rows.filter((entry) => entry.outcome === "failed").length;
+      // Reverses anything the undone rows had already posted.
+      await syncLedger(undefined, userId);
       await writeAudit({
         userId,
         action: "DATA_IMPORT_ROLLED_BACK",
@@ -703,6 +706,7 @@ export async function runImport(type: ImportType, text: string, fileName: string
 
   result.ok = true;
   result.failed = result.rows.filter((entry) => entry.outcome === "failed").length;
+  await syncLedger(undefined, userId);
   await writeAudit({
     userId,
     action: "DATA_IMPORTED",

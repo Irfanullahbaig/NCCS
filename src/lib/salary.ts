@@ -1,6 +1,7 @@
 import type { PaymentMethod, SalaryStatus } from "@/lib/enums";
 import { db, newId, nowIso } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
+import { syncLedger } from "@/lib/accounting";
 import { nextExpenseId } from "@/lib/ids";
 import { currentMonthYear, fullName } from "@/lib/utils";
 
@@ -271,6 +272,7 @@ export async function recordSalaryPayment(input: {
   if (payment.error) throw payment.error;
 
   await recalculateSalaryRecord(live.data.id);
+  await syncLedger({ expenseIds: [expense.data.id] }, input.userId);
   await writeAudit({
     userId: input.userId,
     action: "SALARY_PAYMENT_RECORDED",
@@ -346,6 +348,7 @@ export async function updateSalaryPayment(input: {
     .eq("id", payment.data.expenseTransactionId);
   if (expenseUpdate.error) throw expenseUpdate.error;
   await recalculateSalaryRecord(payment.data.salaryRecordId);
+  await syncLedger({ expenseIds: [payment.data.expenseTransactionId] }, input.userId);
   await writeAudit({
     userId: input.userId,
     action: "SALARY_PAYMENT_EDITED",
@@ -394,6 +397,7 @@ export async function voidSalaryPayment(input: { paymentId: string; reason: stri
     .eq("id", payment.data.expenseTransactionId);
   if (expenseUpdate.error) throw expenseUpdate.error;
   await recalculateSalaryRecord(payment.data.salaryRecordId);
+  await syncLedger({ expenseIds: [payment.data.expenseTransactionId] }, input.userId);
   await writeAudit({
     userId: input.userId,
     action: "SALARY_PAYMENT_VOIDED",

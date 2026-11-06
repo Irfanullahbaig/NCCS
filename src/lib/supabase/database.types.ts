@@ -88,6 +88,59 @@ export type Database = {
           },
         ]
       }
+      JournalEntry: {
+        Row: {
+          amount: number
+          createdAt: string
+          createdById: string | null
+          creditAccount: string
+          date: string
+          debitAccount: string
+          entryNo: number
+          id: string
+          kind: string
+          memo: string
+          revision: number
+          sourceId: string
+          sourceType: string
+          studentId: string | null
+        }
+        Insert: {
+          amount: number
+          createdAt?: string
+          createdById?: string | null
+          creditAccount: string
+          date: string
+          debitAccount: string
+          entryNo?: never
+          id: string
+          kind: string
+          memo: string
+          revision: number
+          sourceId: string
+          sourceType: string
+          studentId?: string | null
+        }
+        Update: {
+          [key: string]: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "JournalEntry_studentId_fkey"
+            columns: ["studentId"]
+            isOneToOne: false
+            referencedRelation: "Student"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "JournalEntry_createdById_fkey"
+            columns: ["createdById"]
+            isOneToOne: false
+            referencedRelation: "User"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       Class: {
         Row: {
           academicYearId: string
@@ -984,7 +1037,18 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      journal_account_totals: {
+        Args: Record<PropertyKey, never>
+        Returns: { account: string; debit: number; credit: number; entries: number }[]
+      }
+      journal_student_receivables: {
+        Args: Record<PropertyKey, never>
+        Returns: { studentId: string; balance: number }[]
+      }
+      journal_monthly_totals: {
+        Args: Record<PropertyKey, never>
+        Returns: { month: string; kind: string; debitAccount: string; creditAccount: string; amount: number; entries: number }[]
+      }
     }
     Enums: {
       ClassStatus: "ACTIVE" | "INACTIVE"
