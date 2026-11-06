@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import {
+  ACCOUNTS,
   balanceOf,
   collectionsIn,
   getJournal,
@@ -7,12 +8,13 @@ import {
   getMonthlyMovements,
   netMovement,
   readAll,
+  type AccountCode,
   type JournalListItem,
   type LedgerSummary,
   type MonthlyMovement,
 } from "@/lib/accounting";
 import type { ResolvedPeriod } from "@/lib/period";
-import { currentMonthYear, fullName, MONTH_NAMES, monthLabel } from "@/lib/utils";
+import { calendarDateInKarachi, currentMonthYear, fullName, MONTH_NAMES, monthLabel } from "@/lib/utils";
 
 /**
  * Everything the dashboard's finance sections show. Money figures come from
@@ -71,8 +73,8 @@ function recentTransactions(rows: JournalListItem[], limit = 8): RecentTransacti
         last.key = `${batch}#${count}`;
         last.amount = round(last.amount + row.amount);
         last.title = `${count} fee vouchers issued`;
-        last.detail = `${row.memo.replace("Fee charged for", "For")} · DR Accounts Receivable / CR Fee Income`;
-        last.href = `/finance/accounts?kind=FEE_CHARGE&from=${row.date}&to=${row.date}#journal`;
+        last.detail = `${row.memo.replace("Fee charged for", "For")} · DR Accounts Receivable / CR Student Fee Income`;
+        last.href = `/finance/ledger?kind=FEE_CHARGE&from=${row.date}&to=${row.date}`;
         continue;
       }
       if (out.length >= limit) break;
@@ -80,11 +82,11 @@ function recentTransactions(rows: JournalListItem[], limit = 8): RecentTransacti
         key: `${batch}#1`,
         kind: "VOUCHERS",
         title: `Fee voucher · ${row.studentName ?? "student"}`,
-        detail: `${row.memo.replace("Fee charged for", "For")} · DR Accounts Receivable / CR Fee Income`,
+        detail: `${row.memo.replace("Fee charged for", "For")} · DR Accounts Receivable / CR Student Fee Income`,
         date: row.date,
         amount: row.amount,
         direction: 1,
-        href: row.studentId ? `/finance/accounts?student=${row.studentId}#journal` : "/finance/accounts#journal",
+        href: row.studentId ? `/finance/ledger?student=${row.studentId}` : "/finance/ledger",
         recordedBy: row.recordedBy,
         createdAt: row.createdAt,
       });
@@ -92,17 +94,19 @@ function recentTransactions(rows: JournalListItem[], limit = 8): RecentTransacti
     }
     if (out.length >= limit) break;
     const payment = row.kind === "FEE_PAYMENT";
+    const received = payment && (row.debitAccount === "BANK" || row.debitAccount === "CASH");
+    const name = (code: string) => ACCOUNTS[code as AccountCode]?.label ?? code;
     out.push({
       key: row.id,
-      kind: payment && row.debitAccount === "BANK" ? "PAYMENT" : "ADJUSTMENT",
+      kind: received ? "PAYMENT" : "ADJUSTMENT",
       title: payment
-        ? `${row.debitAccount === "BANK" ? "Payment" : "Payment reversed"} · ${row.studentName ?? "student"}`
+        ? `${received ? "Payment" : "Payment reversed"} · ${row.studentName ?? "student"}`
         : `Fee ${intoReceivable ? "increased" : "reduced"} · ${row.studentName ?? "student"}`,
-      detail: `${row.memo} · DR ${row.debitAccount === "BANK" ? "Bank" : row.debitAccount === "ACCOUNTS_RECEIVABLE" ? "Accounts Receivable" : "Fee Income"} / CR ${row.creditAccount === "BANK" ? "Bank" : row.creditAccount === "ACCOUNTS_RECEIVABLE" ? "Accounts Receivable" : "Fee Income"}`,
+      detail: `${row.memo} · DR ${name(row.debitAccount)} / CR ${name(row.creditAccount)}`,
       date: row.date,
       amount: row.amount,
       direction: intoReceivable ? 1 : -1,
-      href: row.studentId ? `/finance/accounts?student=${row.studentId}#journal` : "/finance/accounts#journal",
+      href: row.studentId ? `/finance/ledger?student=${row.studentId}` : "/finance/ledger",
       recordedBy: row.recordedBy,
       createdAt: row.createdAt,
     });
@@ -110,7 +114,7 @@ function recentTransactions(rows: JournalListItem[], limit = 8): RecentTransacti
   return out.slice(0, limit);
 }
 
-type VoucherRow = { studentId: string; classId: string; month: number; year: number; status: string; expectedAmount: number; waivedAmount: number; fineAmount: number; paidAmount: number; remainingAmount: number };
+type VoucherRow = { studentId: string; classId: string; month: number; year: number; status: string; dueDate: string | null; expectedAmount: number; waivedAmount: number; fineAmount: number; paidAmount: number; remainingAmount: number };
 
 export async function getFinanceDashboard(period: ResolvedPeriod) {
   const summary: LedgerSummary = await getLedgerSummary();
@@ -122,7 +126,7 @@ export async function getFinanceDashboard(period: ResolvedPeriod) {
     readAll<VoucherRow>(() =>
       db()
         .from("FeeRecord")
-        .select("studentId, classId, month, year, status, expectedAmount, waivedAmount, fineAmount, paidAmount, remainingAmount")
+        .select("studentId, classId, month, year, status, dueDate, expectedAmount, waivedAmount, fineAmount, paidAmount, remainingAmount")
         .order("id"),
     ),
     db()
@@ -152,7 +156,22 @@ export async function getFinanceDashboard(period: ResolvedPeriod) {
     const monthRows = sorted.filter((row) => row.month === key);
     receivable = round(receivable + netMovement(monthRows, "ACCOUNTS_RECEIVABLE"));
     const values = figures(monthRows);
-    return { label: name.slice(0, 3), income: values.totalIncome, collections: values.collections, expenses: values.expenses, receivable };
+    // Vouchers for this fee month, by status, and how much of them has been collected.
+    const monthVouchers = vouchers.filter((row) => row.year === year && row.month === index + 1 && row.status !== "WAIVED");
+    const billed = monthVouchers.reduce((sum, row) => sum + Math.max(0, row.expectedAmount - row.waivedAmount) + row.fineAmount, 0);
+    const paidOnVouchers = monthVouchers.reduce((sum, row) => sum + row.paidAmount, 0);
+    return {
+      label: name.slice(0, 3),
+      accrued: values.feeIncome,
+      income: values.totalIncome,
+      collections: values.collections,
+      expenses: values.expenses,
+      receivable,
+      vouchersPaid: monthVouchers.filter((row) => row.status === "PAID").length,
+      vouchersPartial: monthVouchers.filter((row) => row.status === "PARTIALLY_PAID").length,
+      vouchersUnpaid: monthVouchers.filter((row) => row.status === "PENDING" || row.status === "OVERDUE").length,
+      collectionRate: billed > 0 ? Math.round((paidOnVouchers / billed) * 1000) / 10 : null,
+    };
   });
   const { month: nowMonth, year: nowYear } = currentMonthYear();
   const nowIndex = nowYear * 12 + nowMonth;
@@ -176,6 +195,11 @@ export async function getFinanceDashboard(period: ResolvedPeriod) {
     outstanding: round(periodVouchers.reduce((sum, row) => sum + row.remainingAmount, 0)),
   };
   const issuedThisMonth = vouchers.filter((row) => row.year === nowYear && row.month === nowMonth).length;
+  // Outstanding on vouchers past their due date, across all months.
+  const today = calendarDateInKarachi();
+  const overdueVouchers = vouchers.filter((row) => row.remainingAmount > 0 && (row.status === "OVERDUE" || (row.dueDate ?? "").slice(0, 10) < today));
+  const overdue = { amount: round(overdueVouchers.reduce((sum, row) => sum + row.remainingAmount, 0)), count: overdueVouchers.length };
+  const subledger = round(vouchers.reduce((sum, row) => sum + Math.max(0, row.remainingAmount), 0));
 
   // ---- Outstanding fees: by class from the journal, by age from the open vouchers.
   const students = studentsRes.data ?? [];
@@ -230,12 +254,23 @@ export async function getFinanceDashboard(period: ResolvedPeriod) {
     ready: true as const,
     year,
     periodLabel: month ? monthLabel(month, year) : String(year),
+    periodMonth: month ?? null,
+    /** First and last day of the period, for ledger links. */
+    range: month
+      ? { from: `${monthKey(year, month)}-01`, to: `${monthKey(year, month)}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, "0")}` }
+      : { from: `${year}-01-01`, to: `${year}-12-31` },
     previousLabel: month ? "last month" : "last year",
     current,
     previous,
+    overdue,
+    /** What the fee vouchers still owe; matches Accounts Receivable when the books agree. */
+    outstandingOnVouchers: subledger,
     balances: {
       receivable: balanceOf(summary, "ACCOUNTS_RECEIVABLE"),
       bank: balanceOf(summary, "BANK"),
+      cash: balanceOf(summary, "CASH"),
+      cashIn: summary.accounts.find((row) => row.code === "CASH")?.debit ?? 0,
+      cashOut: summary.accounts.find((row) => row.code === "CASH")?.credit ?? 0,
       bankIn: bankRow?.debit ?? 0,
       bankOut: bankRow?.credit ?? 0,
       balanced: Math.abs(summary.totalDebit - summary.totalCredit) < 0.01,

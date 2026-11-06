@@ -92,10 +92,10 @@ async function FinancialPrint({
       <section>
         <h2 className="mb-3 text-lg font-semibold text-navy">Financial summary</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm">
-          <Summary label="Total income" value={formatPKR(pnl.totalIncome)} />
+          <Summary label="Accrued income" value={formatPKR(pnl.totalIncome)} />
           <Summary label="Total expenses" value={formatPKR(pnl.totalExpenses)} />
-          <Summary label="Fees collected" value={formatPKR(pnl.studentFees)} />
-          <Summary label="Outstanding fees" value={formatPKR(pnl.outstanding)} />
+          <Summary label="Fees collected" value={formatPKR(pnl.collected)} />
+          <Summary label="Accounts Receivable" value={formatPKR(pnl.outstanding)} />
           <Summary label="Payroll" value={formatPKR(pnl.payroll)} />
           <Summary label="Advance salary" value={formatPKR(pnl.advances)} />
           <Summary label="Other expenses" value={formatPKR(pnl.otherExpenses + pnl.rent + pnl.utilities + pnl.supplies + pnl.maintenance)} />
@@ -238,7 +238,7 @@ async function FinancialPrint({
 
       {type === "ledger" ? (
         <section>
-          <h2 className="mb-3 text-lg font-semibold text-navy">Full ledger</h2>
+          <h2 className="mb-3 text-lg font-semibold text-navy">Receipts and payments register</h2>
           <div className="table-wrap">
             <table>
               <thead>

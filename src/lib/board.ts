@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { refreshFeeBalances } from "@/lib/finance";
 import { getPeriodFinance, getYearlyMonthTable } from "@/lib/ledger";
+import { balanceOf, getLedgerSummary } from "@/lib/accounting";
 import type { ResolvedPeriod } from "@/lib/period";
 import { STUDENT_TYPE_LABELS } from "@/lib/constants";
 import { calendarDateFromValue, formatPKR, fullName, monthLabel, MONTH_NAMES } from "@/lib/utils";
@@ -210,15 +211,12 @@ export async function getBoardOverview(period: ResolvedPeriod, options: { financ
     monthly: Array<{ label: string; income: number; expenses: number; net: number }>;
   } = null;
   if (options.finance) {
-    const [current, previous, yearly, incomeAll, expenseAll] = await Promise.all([
+    const [current, previous, yearly, ledgerSummary] = await Promise.all([
       getPeriodFinance(period),
       getPeriodFinance(previousPeriod(period)),
       getYearlyMonthTable(period.year),
-      db().from("IncomeTransaction").select("amount").is("voidedAt", null),
-      db().from("ExpenseTransaction").select("amount").is("voidedAt", null),
+      getLedgerSummary(),
     ]);
-    if (incomeAll.error) throw incomeAll.error;
-    if (expenseAll.error) throw expenseAll.error;
     finance = {
       income: current.totalIncome,
       expenses: current.totalExpenses,
@@ -226,7 +224,8 @@ export async function getBoardOverview(period: ResolvedPeriod, options: { financ
       payroll: current.payroll + current.advances,
       prevIncome: previous.totalIncome,
       prevExpenses: previous.totalExpenses,
-      balance: sum(incomeAll.data ?? [], (row) => row.amount) - sum(expenseAll.data ?? [], (row) => row.amount),
+      // Money held: Bank Account plus Cash Account in the journal.
+      balance: balanceOf(ledgerSummary, "BANK") + balanceOf(ledgerSummary, "CASH"),
       monthly: yearly.map((row) => ({ label: row.label.slice(0, 3), income: row.income, expenses: row.expenses, net: row.net })),
     };
   }
@@ -239,7 +238,7 @@ export async function getBoardOverview(period: ResolvedPeriod, options: { financ
       tone: "critical",
       title: `${overdueStudents.size} student${overdueStudents.size === 1 ? "" : "s"} with overdue fees`,
       detail: `${formatPKR(fees.allTimeOutstanding)} is still owed across all months, including ${formatPKR(fees.unpaidLateFees)} in late fees.`,
-      href: "/finance/outstanding",
+      href: "/finance/receivables?status=open",
       cta: "Review dues",
     });
   }

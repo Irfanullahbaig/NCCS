@@ -17,7 +17,6 @@ const REFRESH = [
   "/classes",
   "/finance",
   "/finance/fees",
-  "/finance/outstanding",
   "/finance/receivables",
   "/finance/income",
   "/finance/expenses",

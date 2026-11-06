@@ -18,7 +18,7 @@ export const STUDENT_TYPE_LABELS = {
 export const FEE_STATUS_LABELS = {
   PAID: "Paid",
   PARTIALLY_PAID: "Partially Paid",
-  PENDING: "Pending",
+  PENDING: "Unpaid",
   OVERDUE: "Overdue",
   WAIVED: "Waived",
 } as const;
@@ -77,7 +77,7 @@ export const STUDENT_STATUS_LABELS = {
 export const SALARY_STATUS_LABELS = {
   PAID: "Paid",
   PARTIALLY_PAID: "Partially Paid",
-  PENDING: "Pending",
+  PENDING: "Unpaid",
 } as const;
 
 export const FEE_STATUS_STYLES: Record<string, string> = {

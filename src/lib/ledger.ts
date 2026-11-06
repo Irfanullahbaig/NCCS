@@ -1,4 +1,13 @@
 import { db } from "@/lib/db";
+import {
+  collectionsIn,
+  getMonthlyMovements,
+  netMovement,
+  prepareLedger,
+  readAll,
+  type AccountCode,
+  type JournalRow,
+} from "@/lib/accounting";
 import { isoRange, type ResolvedPeriod } from "@/lib/period";
 import { monthLabel } from "@/lib/utils";
 import { isAdvanceExpense, isAdvancePayment } from "@/lib/salary";
@@ -25,6 +34,11 @@ export type LedgerEntry = {
   recordedById: string | null;
 };
 
+/**
+ * Receipts and payments register: the income, fee payment and expense
+ * documents in a period. It lists documents only; every total in the finance
+ * reports comes from the journal (see getProfitAndLoss below).
+ */
 export async function getLedgerEntries(period: ResolvedPeriod, filters?: {
   q?: string;
   type?: string;
@@ -156,49 +170,78 @@ export async function getLedgerEntries(period: ResolvedPeriod, filters?: {
   return rows;
 }
 
-export async function getProfitAndLoss(period: ResolvedPeriod) {
-  const rows = await getLedgerEntries(period);
-  const income = rows.filter((row) => row.direction === "income");
-  const expenses = rows.filter((row) => row.direction === "expense");
-  const sum = (list: LedgerEntry[], pred: (row: LedgerEntry) => boolean) =>
-    list.filter(pred).reduce((total, row) => total + row.amount, 0);
+// ---------------------------------------------------------------- Accrual reports from the journal
+//
+// Every total below is read from the double-entry journal: income is what fee
+// vouchers (and other income) recorded in the period, collections are what
+// reached the Bank and Cash accounts, and receivables are the Accounts
+// Receivable balance. Nothing is added up from the source documents.
 
-  const studentFees = sum(income, (row) => row.type === "STUDENT_FEE");
-  const admissionFees = sum(income, (row) => row.type === "ADMISSION_FEE" || row.type === "REGISTRATION_FEE");
-  const otherIncome = sum(income, (row) => !["STUDENT_FEE", "ADMISSION_FEE", "REGISTRATION_FEE"].includes(row.type));
-  const payroll = sum(expenses, (row) => row.type === "SALARIES");
-  const advances = sum(expenses, (row) => row.type === "ADVANCE_SALARY");
-  const rent = sum(expenses, (row) => row.type === "RENT");
-  const utilities = sum(expenses, (row) => row.type === "UTILITIES");
-  const supplies = sum(expenses, (row) => row.type === "SUPPLIES");
-  const maintenance = sum(expenses, (row) => row.type === "MAINTENANCE");
-  const otherExpenses = sum(expenses, (row) =>
-    !["SALARIES", "ADVANCE_SALARY", "RENT", "UTILITIES", "SUPPLIES", "MAINTENANCE"].includes(row.type),
-  );
+type ReportRow = JournalRow & { category: string | null; description: string | null };
 
-  const totalIncome = income.reduce((total, row) => total + row.amount, 0);
-  const totalExpenses = expenses.reduce((total, row) => total + row.amount, 0);
+const roundMoney = (value: number) => Math.round(value * 100) / 100;
 
-  const { from, to } = isoRange(period);
-  let feeQuery = db().from("FeeRecord").select("remainingAmount, expectedAmount, paidAmount, fineAmount, status, month, year");
-  if (period.mode === "month" && period.month) {
-    feeQuery = feeQuery.eq("month", period.month).eq("year", period.year);
-  } else {
-    feeQuery = feeQuery.gte("dueDate", from).lte("dueDate", to);
+/** Journal rows dated within [from, to], with the income or expense category of their source. Null when the journal is missing. */
+async function journalRowsBetween(from: string, to: string): Promise<ReportRow[] | null> {
+  await prepareLedger();
+  let rows: JournalRow[];
+  try {
+    rows = await readAll<JournalRow>(() =>
+      db().from("JournalEntry").select("*").gte("date", from).lte("date", to).order("id"),
+    );
+  } catch (error) {
+    if (error instanceof Error && /journal has not been set up/.test(error.message)) return null;
+    throw error;
   }
-  const feeRes = await feeQuery;
-  if (feeRes.error) throw feeRes.error;
-  const feeStats = feeRes.data ?? [];
+  const incomeIds = [...new Set(rows.filter((row) => row.sourceType === "IncomeTransaction").map((row) => row.sourceId))];
+  const expenseIds = [...new Set(rows.filter((row) => row.sourceType === "ExpenseTransaction").map((row) => row.sourceId))];
+  const categories = new Map<string, { category: string; description: string | null }>();
+  for (let index = 0; index < incomeIds.length; index += 200) {
+    const res = await db().from("IncomeTransaction").select("id, category").in("id", incomeIds.slice(index, index + 200));
+    if (res.error) throw res.error;
+    for (const row of res.data ?? []) categories.set(row.id, { category: row.category, description: null });
+  }
+  for (let index = 0; index < expenseIds.length; index += 200) {
+    const res = await db().from("ExpenseTransaction").select("id, category, description").in("id", expenseIds.slice(index, index + 200));
+    if (res.error) throw res.error;
+    for (const row of res.data ?? []) categories.set(row.id, { category: row.category, description: row.description });
+  }
+  return rows.map((row) => ({
+    ...row,
+    amount: Number(row.amount),
+    category: categories.get(row.sourceId)?.category ?? null,
+    description: categories.get(row.sourceId)?.description ?? null,
+  }));
+}
 
+/** Accounts Receivable at the end of `to` (all postings up to that date). */
+async function receivableAt(to: string) {
+  const movements = await getMonthlyMovements();
+  if (!movements) return 0;
+  const month = to.slice(0, 7);
+  return netMovement(movements.filter((row) => row.month <= month), "ACCOUNTS_RECEIVABLE");
+}
+
+function incomeAndExpenses(rows: ReportRow[]) {
+  const by = (test: (row: ReportRow) => boolean, account: AccountCode) => netMovement(rows.filter(test), account);
+  const studentFees = netMovement(rows, "FEE_INCOME");
+  const admissionFees = by((row) => row.category === "ADMISSION_FEE" || row.category === "REGISTRATION_FEE", "OTHER_INCOME");
+  const otherIncome = roundMoney(netMovement(rows, "OTHER_INCOME") - admissionFees);
+  const isAdvance = (row: ReportRow) => isAdvanceExpense(row.description);
+  const payroll = by((row) => row.category === "SALARIES" && !isAdvance(row), "EXPENSES");
+  const advances = by(isAdvance, "EXPENSES");
+  const rent = by((row) => row.category === "RENT", "EXPENSES");
+  const utilities = by((row) => row.category === "UTILITIES", "EXPENSES");
+  const supplies = by((row) => row.category === "SUPPLIES", "EXPENSES");
+  const maintenance = by((row) => row.category === "MAINTENANCE", "EXPENSES");
+  const totalExpenses = netMovement(rows, "EXPENSES");
+  const otherExpenses = roundMoney(totalExpenses - payroll - advances - rent - utilities - supplies - maintenance);
+  const totalIncome = roundMoney(studentFees + admissionFees + otherIncome);
   return {
-    period,
-    rows,
-    totalIncome,
-    totalExpenses,
-    net: totalIncome - totalExpenses,
     studentFees,
     admissionFees,
     otherIncome,
+    totalIncome,
     payroll,
     advances,
     rent,
@@ -206,91 +249,75 @@ export async function getProfitAndLoss(period: ResolvedPeriod) {
     supplies,
     maintenance,
     otherExpenses,
-    outstanding: feeStats.reduce((total, row) => total + row.remainingAmount, 0),
-    billed: feeStats.reduce((total, row) => total + row.expectedAmount + (row.fineAmount ?? 0), 0),
-    collected: feeStats.reduce((total, row) => total + row.paidAmount, 0),
-    studentsPaid: feeStats.filter((row) => row.status === "PAID").length,
-    studentsPartial: feeStats.filter((row) => row.status === "PARTIALLY_PAID").length,
-    studentsOutstanding: feeStats.filter((row) =>
-      ["PENDING", "OVERDUE", "PARTIALLY_PAID"].includes(row.status),
-    ).length,
+    totalExpenses,
+    net: roundMoney(totalIncome - totalExpenses),
+    collected: collectionsIn(rows),
   };
 }
 
+/** Accrual profit and loss for a period, from the journal. */
+export async function getProfitAndLoss(period: ResolvedPeriod) {
+  const { from, to } = isoRange(period);
+  const rows = await journalRowsBetween(from, to);
+  const totals = incomeAndExpenses(rows ?? []);
+
+  let feeQuery = db().from("FeeRecord").select("status, month, year");
+  feeQuery = period.mode === "month" && period.month ? feeQuery.eq("month", period.month).eq("year", period.year) : feeQuery.gte("dueDate", from).lte("dueDate", to);
+  const feeRes = await feeQuery;
+  if (feeRes.error) throw feeRes.error;
+  const vouchers = feeRes.data ?? [];
+
+  return {
+    ready: rows !== null,
+    period,
+    ...totals,
+    /** Fee income accrued from vouchers in the period. */
+    billed: totals.studentFees,
+    /** Accounts Receivable at the end of the period. */
+    outstanding: rows ? await receivableAt(to) : 0,
+    vouchers: vouchers.length,
+    studentsPaid: vouchers.filter((row) => row.status === "PAID").length,
+    studentsPartial: vouchers.filter((row) => row.status === "PARTIALLY_PAID").length,
+    studentsOutstanding: vouchers.filter((row) => ["PENDING", "OVERDUE", "PARTIALLY_PAID"].includes(row.status)).length,
+  };
+}
+
+/** Headline figures for the board overview, from the journal. */
 export async function getPeriodFinance(period: ResolvedPeriod) {
   const { from, to } = isoRange(period);
-  const feeQuery =
-    period.mode === "month" && period.month
-      ? db().from("FeeRecord").select("remainingAmount, expectedAmount, paidAmount, fineAmount, status").eq("month", period.month).eq("year", period.year)
-      : db().from("FeeRecord").select("remainingAmount, expectedAmount, paidAmount, fineAmount, status").gte("dueDate", from).lte("dueDate", to);
-  const [incomeRes, expenseRes, feeRes] = await Promise.all([
-    db().from("IncomeTransaction").select("amount, category").is("voidedAt", null).gte("date", from).lte("date", to),
-    db().from("ExpenseTransaction").select("amount, category, description").is("voidedAt", null).gte("date", from).lte("date", to),
-    feeQuery,
-  ]);
-  if (incomeRes.error) throw incomeRes.error;
-  if (expenseRes.error) throw expenseRes.error;
-  if (feeRes.error) throw feeRes.error;
-  const income = incomeRes.data ?? [];
-  const expenses = expenseRes.data ?? [];
-  const feeStats = feeRes.data ?? [];
-  const totalIncome = income.reduce((total, row) => total + row.amount, 0);
-  const totalExpenses = expenses.reduce((total, row) => total + row.amount, 0);
-  const payroll = expenses.filter((row) => row.category === "SALARIES").reduce((total, row) => total + row.amount, 0);
-  const advances = expenses.filter((row) => isAdvanceExpense(row.description)).reduce((total, row) => total + row.amount, 0);
+  const rows = await journalRowsBetween(from, to);
+  const totals = incomeAndExpenses(rows ?? []);
   return {
-    totalIncome,
-    totalExpenses,
-    net: totalIncome - totalExpenses,
-    payroll,
-    advances,
-    outstanding: feeStats.reduce((total, row) => total + row.remainingAmount, 0),
-    collected: feeStats.reduce((total, row) => total + row.paidAmount, 0),
+    totalIncome: totals.totalIncome,
+    totalExpenses: totals.totalExpenses,
+    net: totals.net,
+    payroll: totals.payroll,
+    advances: totals.advances,
+    outstanding: rows ? await receivableAt(to) : 0,
+    collected: totals.collected,
   };
 }
 
+/** Month by month for a year, from the journal: accrued income, collections, expenses and receivables at month end. */
 export async function getYearlyMonthTable(year: number) {
-  const from = `${year}-01-01`;
-  const to = `${year}-12-31`;
-  const [incomeRes, expenseRes, feeRes] = await Promise.all([
-    db().from("IncomeTransaction").select("date, amount, category").is("voidedAt", null).gte("date", from).lte("date", to),
-    db().from("ExpenseTransaction").select("date, amount, category, description").is("voidedAt", null).gte("date", from).lte("date", to),
-    db().from("FeeRecord").select("month, remainingAmount, expectedAmount, paidAmount, fineAmount").eq("year", year),
-  ]);
-  if (incomeRes.error) throw incomeRes.error;
-  if (expenseRes.error) throw expenseRes.error;
-  if (feeRes.error) throw feeRes.error;
-
-  const months = Array.from({ length: 12 }, (_, index) => {
+  const rows = (await journalRowsBetween(`${year}-01-01`, `${year}-12-31`)) ?? [];
+  let receivable = await receivableAt(`${year - 1}-12-31`);
+  return Array.from({ length: 12 }, (_, index) => {
     const month = index + 1;
+    const key = `${year}-${String(month).padStart(2, "0")}`;
+    const monthRows = rows.filter((row) => String(row.date).startsWith(key));
+    const totals = incomeAndExpenses(monthRows);
+    receivable = roundMoney(receivable + netMovement(monthRows, "ACCOUNTS_RECEIVABLE"));
     return {
       month,
       label: monthLabel(month, year).split(" ")[0],
-      income: 0,
-      expenses: 0,
-      payroll: 0,
-      fees: 0,
-      outstanding: 0,
-      net: 0,
+      income: totals.totalIncome,
+      expenses: totals.totalExpenses,
+      payroll: roundMoney(totals.payroll + totals.advances),
+      fees: totals.studentFees,
+      collections: totals.collected,
+      outstanding: receivable,
+      net: totals.net,
     };
   });
-
-  for (const row of incomeRes.data ?? []) {
-    const month = Number(String(row.date).slice(5, 7));
-    if (month < 1 || month > 12) continue;
-    months[month - 1].income += row.amount;
-    if (row.category === "STUDENT_FEE") months[month - 1].fees += row.amount;
-  }
-  for (const row of expenseRes.data ?? []) {
-    const month = Number(String(row.date).slice(5, 7));
-    if (month < 1 || month > 12) continue;
-    months[month - 1].expenses += row.amount;
-    if (row.category === "SALARIES" || isAdvanceExpense(row.description)) months[month - 1].payroll += row.amount;
-  }
-  for (const row of feeRes.data ?? []) {
-    if (row.month < 1 || row.month > 12) continue;
-    months[row.month - 1].outstanding += row.remainingAmount;
-  }
-  for (const row of months) row.net = row.income - row.expenses;
-  return months;
 }

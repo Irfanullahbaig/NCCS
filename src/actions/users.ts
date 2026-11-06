@@ -161,7 +161,8 @@ export async function saveLateFeeSettingsAction(formData: FormData) {
 
   revalidatePath("/settings");
   revalidatePath("/finance/fees");
-  revalidatePath("/finance/outstanding");
+  revalidatePath("/finance/receivables");
+  revalidatePath("/finance/ledger");
   revalidatePath("/students");
   revalidatePath("/dashboard");
   return { ok: true as const };

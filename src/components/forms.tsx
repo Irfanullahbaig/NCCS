@@ -1102,19 +1102,41 @@ export function PaymentForm({
   onClose,
   students,
   presetStudentId,
+  presetVoucher,
 }: {
   open: boolean;
   onClose: () => void;
   students: StudentOption[];
   presetStudentId?: string;
+  /** Fee voucher to select when the form opens for the preset student. */
+  presetVoucher?: { month: number; year: number };
 }) {
-  const { error, pending, submit } = useSubmit();
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  /** Records the payment and offers its receipt. */
+  async function submitPayment(formData: FormData) {
+    setPending(true);
+    setError(null);
+    const result = await recordPaymentAction(formData);
+    setPending(false);
+    if (!result.ok) {
+      setError(result.error);
+      toast.error(result.error);
+      return false;
+    }
+    const receipt = result.paymentIds?.length ? `/finance/receipts/${result.paymentIds.join(",")}` : null;
+    toast.success("Payment recorded", receipt ? { action: { label: "Print receipt", onClick: () => window.open(receipt, "_blank") }, duration: 10_000 } : undefined);
+    router.refresh();
+    return true;
+  }
   const today = calendarDateInKarachi();
   const [studentId, setStudentId] = useState(presetStudentId ?? "");
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [year, setYear] = useState(new Date().getFullYear());
   const [paymentDate, setPaymentDate] = useState(today);
   const [edited, setEdited] = useState<Record<string, string>>({});
+  const [method, setMethod] = useState("CASH");
   const selected = students.find((student) => student.id === studentId);
   const fees = useStudentFeeYears(studentId, year);
   // The student whose oldest unpaid voucher year has already been shown.
@@ -1132,7 +1154,10 @@ export function PaymentForm({
   // Open on the year of the oldest unpaid voucher, so earlier dues are seen first.
   if (fees.outstanding && studentId && pickedFor !== studentId) {
     setPickedFor(studentId);
-    if (fees.outstanding.length) setYear(fees.outstanding[0].year);
+    if (presetVoucher && studentId === presetStudentId) {
+      setYear(presetVoucher.year);
+      setSelectedKeys([periodKey(presetVoucher.year, presetVoucher.month)]);
+    } else if (fees.outstanding.length) setYear(fees.outstanding[0].year);
   }
 
   const rows = selectedKeys
@@ -1154,7 +1179,8 @@ export function PaymentForm({
         className="grid gap-4 sm:grid-cols-2"
         onSubmit={async (event) => {
           event.preventDefault();
-          await submit(recordPaymentAction, new FormData(event.currentTarget), "Payment recorded", onClose);
+          const result = await submitPayment(new FormData(event.currentTarget));
+          if (result) onClose();
         }}
       >
         <Field label="Student" className="sm:col-span-2">
@@ -1272,7 +1298,7 @@ export function PaymentForm({
             <>
               <FeeMonthCards months={fees.months} year={year} paymentDate={paymentDate} selected={selectedKeys} onToggle={toggle} />
               <p className="mt-2 text-xs text-slate-500">
-                Pick every month this payment covers. Paid and scholarship months are locked. "Not issued" and "Advance" months have no voucher and owe nothing; paying one issues its voucher first.
+                Pick every month this payment covers. Paid and scholarship months are locked. &ldquo;Not issued&rdquo; and &ldquo;Advance&rdquo; months have no voucher and owe nothing; paying one issues its voucher first.
               </p>
             </>
           )}
@@ -1335,7 +1361,7 @@ export function PaymentForm({
               </tbody>
               <tfoot>
                 <tr className="border-t border-slate-200 bg-slate-50">
-                  <td className="px-3 py-2 font-semibold text-navy" colSpan={5}>Total · DR Bank Account / CR Accounts Receivable</td>
+                  <td className="px-3 py-2 font-semibold text-navy" colSpan={5}>Total · DR {method === "CASH" ? "Cash Account" : "Bank Account"} / CR Accounts Receivable</td>
                   <td className="px-3 py-2 font-semibold text-navy">{formatPKR(total)}</td>
                 </tr>
               </tfoot>
@@ -1346,7 +1372,7 @@ export function PaymentForm({
         ) : null}
 
         <Field label="Payment method">
-          <Select name="paymentMethod" required>
+          <Select name="paymentMethod" value={method} onChange={(event) => setMethod(event.target.value)} required>
             {Object.entries(PAYMENT_METHOD_LABELS).map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
             ))}
@@ -1501,14 +1527,23 @@ export function RecordPaymentButton({
  * Per-row "Record payment" for tables. The form (and its fee lookup) is only
  * mounted once the button is pressed, so a long table stays light.
  */
-export function PayStudentButton({ student, label = "Record payment" }: { student: StudentOption; label?: string }) {
+export function PayStudentButton({
+  student,
+  label = "Record payment",
+  voucher,
+}: {
+  student: StudentOption;
+  label?: string;
+  /** Fee voucher the form opens with selected. */
+  voucher?: { month: number; year: number };
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <Button size="sm" variant="outline" onClick={() => setOpen(true)} aria-label={`${label} for ${student.name}`}>
         {label}
       </Button>
-      {open ? <PaymentForm open onClose={() => setOpen(false)} students={[student]} presetStudentId={student.id} /> : null}
+      {open ? <PaymentForm open onClose={() => setOpen(false)} students={[student]} presetStudentId={student.id} presetVoucher={voucher} /> : null}
     </>
   );
 }

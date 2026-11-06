@@ -133,7 +133,7 @@ export default async function IncomePage({
                   return (
                   <tr key={row.id} className={row.voidedAt ? "opacity-50" : ""}>
                     <td>
-                      <Link href={`/finance/ledger?txn=${encodeURIComponent(row.incomeId)}`} className="font-medium text-navy">
+                      <Link href={`/finance/ledger?q=${encodeURIComponent(row.incomeId)}`} className="font-medium text-navy">
                         {row.incomeId}
                       </Link>
                     </td>

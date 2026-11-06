@@ -82,7 +82,7 @@ export default async function ExpensesPage({
                 {rows.map((row) => (
                   <tr key={row.id}>
                     <td>
-                      <Link href={`/finance/ledger?txn=${encodeURIComponent(row.expenseId)}`} className="font-medium text-navy">
+                      <Link href={`/finance/ledger?q=${encodeURIComponent(row.expenseId)}`} className="font-medium text-navy">
                         {row.expenseId}
                       </Link>
                     </td>

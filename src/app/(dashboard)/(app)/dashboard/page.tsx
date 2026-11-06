@@ -16,7 +16,6 @@ import { requirePermission } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { getBoardOverview, type Insight, type InsightTone } from "@/lib/board";
 import { getDashboardData } from "@/lib/queries";
-import { getReceivables } from "@/lib/receivables";
 import { getFinanceDashboard, type FinanceDashboard } from "@/lib/finance-dashboard";
 import { latestVoucherMonth } from "@/lib/finance";
 import { InitiateVouchersButton, RecordPaymentButton } from "@/components/forms";
@@ -25,7 +24,7 @@ import { getSchoolName } from "@/lib/school";
 import { cn, formatDate, formatPKR, fullName, MONTH_NAMES } from "@/lib/utils";
 import { PAYMENT_METHOD_LABELS, SCHOOL_NAME } from "@/lib/constants";
 import { Card, Segmented, StatCard } from "@/components/ui";
-import { ClassDistributionChart, EnrollmentChart, FinanceTrendChart, LedgerTrendChart, SERIES } from "@/components/board-charts";
+import { ClassDistributionChart, EnrollmentChart, LedgerTrendChart, SERIES } from "@/components/board-charts";
 
 export default async function DashboardPage({
   searchParams,
@@ -38,19 +37,17 @@ export default async function DashboardPage({
   const period = periodFromParams({ ...params, period: params.period === "year" ? "year" : "month" });
   const showFinance = can(user.role, "finance.analytics");
   const showPayroll = can(user.role, "salaries.view");
-  const showReceivables = can(user.role, "fees.view");
   const showAccounts = can(user.role, "finance.view");
   const canRecord = can(user.role, "fees.record");
-  const [board, recent, schoolName, receivables, accounts] = await Promise.all([
+  const [board, recent, schoolName, accounts] = await Promise.all([
     getBoardOverview(period, { finance: showFinance, payroll: showPayroll }),
     getDashboardData(),
     getSchoolName(),
-    showReceivables ? getReceivables(period) : null,
     showAccounts ? getFinanceDashboard(period) : null,
   ]);
   // With the journal in place, the finance sections are built from it.
   const ledger = accounts?.ready ? accounts : null;
-  const { students, staff, classes, fees, finance, payroll } = board;
+  const { students, staff, classes, fees, payroll } = board;
   const month = period.month ?? new Date().getMonth() + 1;
   const scope = period.mode === "year" ? `in ${period.year}` : `in ${period.label}`;
 
@@ -78,7 +75,7 @@ export default async function DashboardPage({
               </Link>
             ) : null}
             {can(user.role, "fees.view") ? (
-              <Link href="/finance/outstanding" className="inline-flex h-10 items-center rounded-xl border border-white/50 px-4 text-sm font-semibold text-white hover:bg-white/10">
+              <Link href="/finance/receivables?status=open" className="inline-flex h-10 items-center rounded-xl border border-white/50 px-4 text-sm font-semibold text-white hover:bg-white/10">
                 Review outstanding fees
               </Link>
             ) : null}
@@ -153,85 +150,8 @@ export default async function DashboardPage({
         />
       </div>
 
-      {ledger ? null : (
-        <>
-      {/* Financial overview */}
-      <Card title="Financial overview" subtitle={`Totals ${scope}${finance ? `, compared with the previous ${period.mode === "year" ? "year" : "month"}` : ""}`}>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {finance ? (
-            <>
-              <MoneyTile label="Total income" value={finance.income} previous={finance.prevIncome} goodWhenUp href="/finance/income" />
-              <MoneyTile label="Total expenses" value={finance.expenses} previous={finance.prevExpenses} goodWhenUp={false} href="/finance/expenses" />
-            </>
-          ) : (
-            <>
-              <MoneyTile label="Fees billed" value={fees.billed} href="/finance/fees" />
-              <MoneyTile label="Fees collected" value={fees.collected} href="/finance/fees" />
-            </>
-          )}
-          <MoneyTile
-            label="Outstanding fees"
-            value={fees.outstanding}
-            note={`${formatPKR(fees.allTimeOutstanding)} owed across all months`}
-            tone={fees.outstanding > 0 ? "bad" : undefined}
-            href="/finance/outstanding"
-          />
-          {finance ? (
-            <MoneyTile
-              label="Available balance"
-              value={finance.balance}
-              note={`All income minus all expenses · net ${scope}: ${formatPKR(finance.net)}`}
-              tone={finance.balance < 0 ? "bad" : "good"}
-              highlight
-              href="/finance/ledger"
-            />
-          ) : (
-            <MoneyTile label="Late fees charged" value={fees.lateFees} note={`${formatPKR(fees.unpaidLateFees)} still unpaid`} href="/finance/fees" />
-          )}
-        </div>
-      </Card>
-
       {accounts && !accounts.ready ? <JournalNotice /> : null}
-
-      {/* Receivables */}
-      {receivables ? (
-        <Card
-          title="Receivables"
-          subtitle={`Expected fees from all enrolled students ${scope}, split into what is received and what is still owed`}
-          action={<Link href={`/finance/receivables?period=${period.mode}&month=${month}&year=${period.year}`} className="text-sm font-medium text-orange">View details</Link>}
-        >
-          <div className="grid gap-3 sm:grid-cols-3">
-            <MoneyTile
-              label="Expected income"
-              value={receivables.expected}
-              note={`${receivables.enrolledStudents} enrolled students at their fixed fee`}
-              href={`/finance/receivables?period=${period.mode}&month=${month}&year=${period.year}`}
-            />
-            <MoneyTile
-              label="Received (in Income)"
-              value={receivables.received}
-              note={`${receivables.rate}% of expected`}
-              tone="good"
-              href="/finance/income?category=STUDENT_FEE"
-            />
-            <MoneyTile
-              label="Receivables"
-              value={receivables.receivable}
-              note={`${receivables.studentsOwing} student${receivables.studentsOwing === 1 ? "" : "s"} still owe`}
-              tone="bad"
-              highlight
-              href={`/finance/receivables?period=${period.mode}&month=${month}&year=${period.year}`}
-            />
-          </div>
-          <Bar value={receivables.received} total={receivables.expected} color={SERIES.green} />
-        </Card>
-      ) : null}
-
-      {/* Finance chart + insights */}
-      <div className="grid gap-5 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <FinanceTrendChart money={finance?.monthly ?? []} fees={fees.monthly} year={period.year} showMoney={Boolean(finance)} />
-        </Card>
+      {!ledger && !showAccounts ? (
         <Card title="Key insights & alerts" subtitle="What needs management's attention">
           <ul className="space-y-2.5">
             {board.insights.slice(0, 6).map((insight, index) => (
@@ -239,9 +159,7 @@ export default async function DashboardPage({
             ))}
           </ul>
         </Card>
-      </div>
-        </>
-      )}
+      ) : null}
 
       {/* Students */}
       <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
@@ -290,19 +208,7 @@ export default async function DashboardPage({
             </div>
           ) : null}
         </Card>
-        {ledger ? null : <Card title="Fee status" subtitle={`Student fee records ${scope}`}>
-          <div className="space-y-4">
-            <Meter label="Paid in full" value={fees.paid} total={fees.paid + fees.partial + fees.pending + fees.overdue + fees.waivedCount} color={SERIES.green} />
-            <Meter label="Part paid" value={fees.partial} total={fees.paid + fees.partial + fees.pending + fees.overdue + fees.waivedCount} color={SERIES.blue} />
-            <Meter label="Pending (not yet due)" value={fees.pending} total={fees.paid + fees.partial + fees.pending + fees.overdue + fees.waivedCount} color="#a8a29e" />
-            <Meter label="Overdue" value={fees.overdue} total={fees.paid + fees.partial + fees.pending + fees.overdue + fees.waivedCount} color={SERIES.orange} />
-            <Meter label="Waived / scholarship" value={fees.waivedCount} total={fees.paid + fees.partial + fees.pending + fees.overdue + fees.waivedCount} color="#d6d0c9" />
-          </div>
-          <p className="mt-5 text-xs text-slate-500">
-            {formatPKR(fees.waived)} waived · {formatPKR(fees.lateFees)} in late fees charged
-          </p>
-        </Card>}
-        <Card title="Largest outstanding balances" subtitle="Across all fee months" className={ledger ? "xl:col-span-2" : "lg:col-span-2 xl:col-span-1"} action={<Link href="/finance/outstanding" className="text-sm font-medium text-orange">View all</Link>}>
+        <Card title="Largest outstanding balances" subtitle="Across all fee months" className="xl:col-span-2" action={<Link href="/finance/receivables?status=open" className="text-sm font-medium text-orange">View all</Link>}>
           {board.defaulters.length ? (
             <ul className="divide-y divide-slate-100">
               {board.defaulters.map((row) => (
@@ -445,8 +351,10 @@ function JournalNotice() {
   return (
     <Card title="Accounts" subtitle="Accounts Receivable and Bank Account">
       <p className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-800">
-        The accounting journal is not set up in the database yet. Run the migration
+        The accounting journal is not set up in the database yet. Run the migrations
         <code className="mx-1 rounded bg-white px-1">20261106000000_journal_entries.sql</code>
+        then
+        <code className="mx-1 rounded bg-white px-1">20261108000000_journal_cash_account.sql</code>
         and the dashboard&apos;s finance figures will be built from it, starting with every fee and payment already recorded.
       </p>
     </Card>
@@ -458,6 +366,7 @@ function LedgerSections({ data, canRecord, insights }: { data: FinanceDashboard;
   const { current, previous, balances, vouchers, outstanding } = data;
   const voucherTotal = vouchers.generated || 1;
   const ageTotal = outstanding.byAge.reduce((sum, row) => sum + row.amount, 0);
+  const range = `&from=${data.range.from}&to=${data.range.to}`;
   return (
     <>
       <Card
@@ -479,35 +388,67 @@ function LedgerSections({ data, canRecord, insights }: { data: FinanceDashboard;
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <MoneyTile
-            label="Total income"
+            label="Total accrued income"
             value={current.totalIncome}
             previous={previous.totalIncome}
             goodWhenUp
-            note={`${formatPKR(current.feeIncome)} fee income from vouchers${current.otherIncome ? ` · ${formatPKR(current.otherIncome)} other` : ""}`}
-            href="/finance/accounts?account=FEE_INCOME#journal"
+            note={`${formatPKR(current.feeIncome)} student fees from vouchers${current.otherIncome ? ` · ${formatPKR(current.otherIncome)} other` : ""}`}
+            href={`/finance/ledger?account=FEE_INCOME${range}`}
+          />
+          <MoneyTile
+            label="Total Accounts Receivable"
+            value={balances.receivable}
+            note={`Owed today · ${outstanding.studentsOwing} student${outstanding.studentsOwing === 1 ? "" : "s"}`}
+            tone="bad"
+            href="/finance/ledger?account=ACCOUNTS_RECEIVABLE"
           />
           <MoneyTile
             label="Total collections"
             value={current.collections}
             previous={previous.collections}
             goodWhenUp
-            note={`Payments received from students in ${data.periodLabel}`}
+            note={`Fee payments received in ${data.periodLabel}`}
             tone="good"
-            href="/finance/accounts?kind=FEE_PAYMENT#journal"
-          />
-          <MoneyTile
-            label="Accounts Receivable"
-            value={balances.receivable}
-            note={`Outstanding today · ${outstanding.studentsOwing} student${outstanding.studentsOwing === 1 ? "" : "s"} owe`}
-            tone="bad"
-            href="/finance/accounts#students"
+            href={`/finance/ledger?kind=FEE_PAYMENT${range}`}
           />
           <MoneyTile
             label="Bank balance"
             value={balances.bank}
-            note={`${formatPKR(balances.bankIn)} received · ${formatPKR(balances.bankOut)} paid out`}
+            note={`${formatPKR(balances.bankIn)} in · ${formatPKR(balances.bankOut)} out`}
             highlight
-            href="/finance/accounts?account=BANK#journal"
+            href="/finance/ledger?account=BANK"
+          />
+          <MoneyTile
+            label="Cash balance"
+            value={balances.cash}
+            note={`${formatPKR(balances.cashIn)} in · ${formatPKR(balances.cashOut)} out`}
+            highlight
+            href="/finance/ledger?account=CASH"
+          />
+          <MoneyTile
+            label="Outstanding fees"
+            value={data.outstandingOnVouchers}
+            note={
+              Math.abs(data.outstandingOnVouchers - balances.receivable) < 0.01
+                ? "Unpaid on fee vouchers · matches the ledger"
+                : `Unpaid on fee vouchers · ledger shows ${formatPKR(balances.receivable)}`
+            }
+            tone="bad"
+            href="/finance/receivables?status=open"
+          />
+          <MoneyTile
+            label="Total fee vouchers"
+            value={vouchers.generated}
+            display={vouchers.generated.toLocaleString("en-PK")}
+            note={`${data.periodLabel} · ${vouchers.paid} paid · ${vouchers.partial} partial · ${vouchers.unpaid} unpaid`}
+            href={`/finance/receivables?${data.periodMonth ? `month=${data.periodMonth}&` : ""}year=${data.year}`}
+          />
+          <MoneyTile
+            label="Overdue fees"
+            value={data.overdue.amount}
+            note={`${data.overdue.count} voucher${data.overdue.count === 1 ? "" : "s"} past the due date`}
+            tone="bad"
+            href="/finance/receivables?status=OVERDUE"
           />
         </div>
         <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
@@ -520,7 +461,7 @@ function LedgerSections({ data, canRecord, insights }: { data: FinanceDashboard;
       </Card>
 
       <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
-        <Card title="Fee vouchers" subtitle={`Vouchers for ${data.periodLabel}`} action={<Link href="/finance/fees" className="text-sm font-medium text-orange">View all</Link>}>
+        <Card title="Fee vouchers" subtitle={`Vouchers for ${data.periodLabel}`} action={<Link href="/finance/receivables" className="text-sm font-medium text-orange">View all</Link>}>
           {vouchers.generated ? (
             <>
               <div className="grid grid-cols-2 gap-3">
@@ -546,7 +487,7 @@ function LedgerSections({ data, canRecord, insights }: { data: FinanceDashboard;
           )}
         </Card>
 
-        <Card title="Outstanding fees" subtitle="What students still owe, across all months" action={<Link href="/finance/accounts#students" className="text-sm font-medium text-orange">Student-wise</Link>}>
+        <Card title="Outstanding fees" subtitle="What students still owe, across all months" action={<Link href="/finance/receivables?status=open" className="text-sm font-medium text-orange">Accounts Receivable</Link>}>
           <p className={cn("text-2xl font-bold tracking-tight", balances.receivable > 0 ? "text-rose-700" : "text-navy")}>{formatPKR(balances.receivable)}</p>
           <div className="mt-4 space-y-3">
             {outstanding.byAge.map((row, index) => (
@@ -573,7 +514,7 @@ function LedgerSections({ data, canRecord, insights }: { data: FinanceDashboard;
           )}
         </Card>
 
-        <Card title="Recent transactions" subtitle="Latest vouchers and payments" className="lg:col-span-2 xl:col-span-1" action={<Link href="/finance/accounts#journal" className="text-sm font-medium text-orange">Journal</Link>}>
+        <Card title="Recent transactions" subtitle="Latest vouchers and payments" className="lg:col-span-2 xl:col-span-1" action={<Link href="/finance/ledger" className="text-sm font-medium text-orange">Ledger</Link>}>
           {data.recent.length ? (
             <ul className="divide-y divide-slate-100">
               {data.recent.map((row) => (
@@ -633,9 +574,12 @@ function MoneyTile({
   tone,
   highlight,
   href,
+  display,
 }: {
   label: string;
   value: number;
+  /** Shown instead of the value as money, e.g. a count. */
+  display?: string;
   previous?: number;
   goodWhenUp?: boolean;
   note?: string;
@@ -674,7 +618,7 @@ function MoneyTile({
           highlight ? "text-white" : tone === "bad" && value > 0 ? "text-rose-700" : "text-navy",
         )}
       >
-        {formatPKR(value)}
+        {display ?? formatPKR(value)}
       </p>
       {note ? <p className={cn("mt-1 text-xs", highlight ? "text-white/70" : "text-slate-500")}>{note}</p> : null}
     </Link>

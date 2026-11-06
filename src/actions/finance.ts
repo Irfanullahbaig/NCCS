@@ -28,8 +28,8 @@ function refreshFinance() {
   revalidatePath("/finance/income");
   revalidatePath("/finance/expenses");
   revalidatePath("/finance/fees");
-  revalidatePath("/finance/outstanding");
   revalidatePath("/finance/receivables");
+  revalidatePath("/finance/receipts/[paymentId]", "page");
   revalidatePath("/students");
   revalidatePath("/students/[id]", "page");
   revalidatePath("/staff/[id]", "page");
@@ -90,11 +90,12 @@ export async function recordPaymentAction(formData: FormData) {
     if (!periods.length || periods.some((period) => !period.year)) return fail("Select at least one fee month");
 
     let recorded = 0;
+    const paymentIds: string[] = [];
     for (const period of periods) {
       const monthAmount = Number(formData.get(`amount_${period.key}`) || amount);
       if (!monthAmount) continue;
       recorded += 1;
-      await recordStudentPayment({
+      const saved = await recordStudentPayment({
         studentId,
         amount: monthAmount,
         paymentDate: parseDateInput(paymentDate),
@@ -106,11 +107,12 @@ export async function recordPaymentAction(formData: FormData) {
         category,
         userId: user.id,
       });
+      paymentIds.push(saved.payment.id);
     }
     if (!recorded) return fail("Enter an amount for at least one month");
     refreshFinance();
     revalidatePath(`/students/${studentId}`);
-    return { ok: true as const };
+    return { ok: true as const, paymentIds };
   } catch (error) {
     return fail(error instanceof Error ? error.message : "Unable to record payment");
   }

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
 import { getProfitAndLoss, getYearlyMonthTable } from "@/lib/ledger";
-import { periodFromParams } from "@/lib/period";
+import { isoRange, periodFromParams } from "@/lib/period";
 import { formatPKR } from "@/lib/utils";
 import { Card, PageHeader, StatCard } from "@/components/ui";
 import { PeriodFilter } from "@/components/period-filter";
@@ -19,45 +19,44 @@ export default async function ProfitLossPage({
     getProfitAndLoss(period),
     getYearlyMonthTable(period.year),
   ]);
-  const query = new URLSearchParams({ period: period.mode, year: String(period.year) });
-  if (period.month) query.set("month", String(period.month));
-  const ledgerHref = `/finance/ledger?${query.toString()}`;
+  const range = isoRange(period);
+  const ledgerHref = `/finance/ledger?from=${range.from}&to=${range.to}`;
 
   return (
     <div>
       <PageHeader
         title="Profit & Loss"
-        subtitle={`Calculated only from posted payments and expenses for ${period.label}. Outstanding fees are not income.`}
+        subtitle={`Accrual basis for ${period.label}: student fee income is recorded when vouchers are issued, whether or not they are paid yet. From the accounting journal.`}
         actions={<Link href={ledgerHref} className="inline-flex h-10 items-center rounded-xl border border-slate-200 px-4 text-sm">Open ledger</Link>}
       />
       <PeriodFilter action="/finance/profit-loss" period={period} />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Total income" value={formatPKR(data.totalIncome)} href={`${ledgerHref}&type=income`} />
-        <StatCard label="Total expenses" value={formatPKR(data.totalExpenses)} tone="rose" href={`${ledgerHref}&type=expense`} />
-        <StatCard label="Payroll" value={formatPKR(data.payroll)} href={`${ledgerHref}&type=SALARIES`} />
-        <StatCard label="Outstanding fees" value={formatPKR(data.outstanding)} tone="gold" href="/finance/outstanding" />
+        <StatCard label="Accrued income" value={formatPKR(data.totalIncome)} hint={`${formatPKR(data.collected)} collected`} href={`${ledgerHref}&account=FEE_INCOME`} />
+        <StatCard label="Total expenses" value={formatPKR(data.totalExpenses)} tone="rose" href={`${ledgerHref}&account=EXPENSES`} />
+        <StatCard label="Payroll" value={formatPKR(data.payroll)} href={`${ledgerHref}&account=EXPENSES`} />
+        <StatCard label="Accounts Receivable" value={formatPKR(data.outstanding)} hint={`At the end of ${period.label}`} tone="gold" href="/finance/receivables" />
         <StatCard label={data.net >= 0 ? "Net profit" : "Net loss"} value={formatPKR(data.net)} tone={data.net >= 0 ? "teal" : "rose"} />
       </div>
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <Card title="Income">
           <Rows
             items={[
-              ["Student fees", data.studentFees, `${ledgerHref}&type=STUDENT_FEE`],
-              ["Admission / registration", data.admissionFees, `${ledgerHref}&type=ADMISSION_FEE`],
-              ["Other income", data.otherIncome, `${ledgerHref}&type=income`],
+              ["Student fee income (vouchers)", data.studentFees, `${ledgerHref}&account=FEE_INCOME`],
+              ["Admission / registration", data.admissionFees, `${ledgerHref}&account=OTHER_INCOME`],
+              ["Other income", data.otherIncome, `${ledgerHref}&account=OTHER_INCOME`],
             ]}
           />
         </Card>
         <Card title="Expenses">
           <Rows
             items={[
-              ["Teacher / staff payroll", data.payroll, `${ledgerHref}&type=SALARIES`],
-              ["Advance salary", data.advances, `${ledgerHref}&type=ADVANCE_SALARY`],
-              ["Rent", data.rent, ledgerHref],
-              ["Utilities", data.utilities, ledgerHref],
-              ["Supplies", data.supplies, ledgerHref],
-              ["Maintenance", data.maintenance, ledgerHref],
-              ["Other expenses", data.otherExpenses, `${ledgerHref}&type=expense`],
+              ["Teacher / staff payroll", data.payroll, `${ledgerHref}&account=EXPENSES`],
+              ["Advance salary", data.advances, `${ledgerHref}&account=EXPENSES`],
+              ["Rent", data.rent, `${ledgerHref}&account=EXPENSES`],
+              ["Utilities", data.utilities, `${ledgerHref}&account=EXPENSES`],
+              ["Supplies", data.supplies, `${ledgerHref}&account=EXPENSES`],
+              ["Maintenance", data.maintenance, `${ledgerHref}&account=EXPENSES`],
+              ["Other expenses", data.otherExpenses, `${ledgerHref}&account=EXPENSES`],
             ]}
           />
         </Card>
@@ -69,7 +68,8 @@ export default async function ProfitLossPage({
               <thead>
                 <tr>
                   <th>Month</th>
-                  <th>Fee income</th>
+                  <th>Accrued fee income</th>
+                  <th>Collections</th>
                   <th>Payroll</th>
                   <th>Total expenses</th>
                   <th>Net</th>
@@ -84,6 +84,7 @@ export default async function ProfitLossPage({
                       </Link>
                     </td>
                     <td>{formatPKR(row.fees)}</td>
+                    <td>{formatPKR(row.collections)}</td>
                     <td>{formatPKR(row.payroll)}</td>
                     <td>{formatPKR(row.expenses)}</td>
                     <td>{formatPKR(row.net)}</td>
@@ -99,6 +100,7 @@ export default async function ProfitLossPage({
                 income: row.income,
                 expenses: row.expenses,
                 fees: row.fees,
+                collections: row.collections,
                 payroll: row.payroll,
                 outstanding: row.outstanding,
                 net: row.net,

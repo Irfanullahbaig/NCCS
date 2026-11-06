@@ -19,6 +19,8 @@ type ChartRow = {
   income: number;
   expenses: number;
   fees: number;
+  /** Money received from students. */
+  collections?: number;
   payroll?: number;
   outstanding?: number;
   net?: number;
@@ -112,13 +114,13 @@ export function FinanceCharts({
         </ResponsiveContainer>
       </ChartPanel>
       <ChartPanel
-        title={compact ? "Net profit / loss" : "Fee collection"}
+        title={compact ? "Net profit / loss" : "Accrued fee income vs collections"}
         legend={
           compact
             ? [{ color: "#3B6FC0", label: "Net" }]
             : [
-                { color: "#3B6FC0", label: "Student fees" },
-                { color: "#0E7C4A", label: "Total income" },
+                { color: "#3B6FC0", label: "Accrued fee income" },
+                { color: "#0E7C4A", label: "Collections" },
               ]
         }
       >
@@ -132,8 +134,8 @@ export function FinanceCharts({
               <Line type="monotone" dataKey="net" stroke="#3B6FC0" strokeWidth={2} dot={false} />
             ) : (
               <>
-                <Line type="monotone" dataKey="fees" stroke="#3B6FC0" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="income" stroke="#0E7C4A" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="fees" name="Accrued fee income" stroke="#3B6FC0" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="collections" name="Collections" stroke="#0E7C4A" strokeWidth={2} dot={false} />
               </>
             )}
           </LineChart>
@@ -142,10 +144,10 @@ export function FinanceCharts({
       {showExtra ? (
         <>
           <ChartPanel
-            title="Payroll & outstanding"
+            title="Payroll & receivables (month end)"
             legend={[
               { color: "#3B6FC0", label: "Payroll" },
-              { color: "#F2914F", label: "Outstanding" },
+              { color: "#F2914F", label: "Accounts Receivable" },
             ]}
           >
             <ResponsiveContainer width="100%" height="100%">

@@ -13,10 +13,17 @@ import { calendarDateFromValue, calendarDateInKarachi, formatPKR, monthLabel } f
  * the journal already holds for the document and posts only the difference,
  * as a new numbered revision:
  *
- *   Fee charged      DR Accounts Receivable   CR Fee Income
- *   Fee paid         DR Bank Account          CR Accounts Receivable
- *   Other income     DR Bank Account          CR Other Income
- *   Expense          DR Expenses              CR Bank Account
+ * Accrual basis: income is recorded when a fee voucher is issued, not when
+ * it is paid. Money received or paid goes to the Cash Account for cash and to
+ * the Bank Account for every other payment method.
+ *
+ *   Fee voucher      DR Accounts Receivable   CR Student Fee Income
+ *   Fee paid         DR Bank / Cash           CR Accounts Receivable
+ *   Other income     DR Bank / Cash           CR Other Income
+ *   Expense          DR Expenses              CR Bank / Cash
+ *
+ * A document whose accounts change (a payment method edited from cash to bank
+ * transfer) has the old pair reversed and the new pair posted.
  *
  * A reduction (discount, waiver, voided payment) posts the same pair the other
  * way round. Each posting debits and credits the same amount, so the books
@@ -26,14 +33,20 @@ import { calendarDateFromValue, calendarDateInKarachi, formatPKR, monthLabel } f
 
 export const ACCOUNTS = {
   BANK: { label: "Bank Account", type: "asset" },
+  CASH: { label: "Cash Account", type: "asset" },
   ACCOUNTS_RECEIVABLE: { label: "Accounts Receivable", type: "asset" },
-  FEE_INCOME: { label: "Fee Income", type: "income" },
+  FEE_INCOME: { label: "Student Fee Income", type: "income" },
   OTHER_INCOME: { label: "Other Income", type: "income" },
   EXPENSES: { label: "Expenses", type: "expense" },
 } as const;
 
 export type AccountCode = keyof typeof ACCOUNTS;
 export const ACCOUNT_CODES = Object.keys(ACCOUNTS) as AccountCode[];
+
+/** Where money goes for a payment method: cash to the Cash Account, everything else to the Bank Account. */
+export function moneyAccount(method: string | null | undefined): "CASH" | "BANK" {
+  return method === "CASH" ? "CASH" : "BANK";
+}
 
 type SourceType = "FeeRecord" | "FeePayment" | "IncomeTransaction" | "ExpenseTransaction";
 type Kind = "FEE_CHARGE" | "FEE_PAYMENT" | "INCOME" | "EXPENSE";
@@ -63,7 +76,10 @@ type Target = {
   decreaseMemo: string;
 };
 
-type Posted = { net: number; revision: number; debit: AccountCode; credit: AccountCode; studentId: string | null; kind: Kind };
+/** What one account pair of a document carries, in the pair's normal direction. */
+type PostedPair = { net: number; debit: AccountCode; credit: AccountCode };
+type Posted = { revision: number; studentId: string | null; kind: Kind; pairs: Map<string, PostedPair> };
+const pairKey = (a: string, b: string) => [a, b].sort().join("|");
 
 export type JournalRow = {
   id: string;
@@ -156,6 +172,7 @@ type IncomeSource = {
   category: string;
   source: string | null;
   studentId: string | null;
+  paymentMethod: string | null;
   voidedAt: string | null;
   voidedById: string | null;
   createdById: string | null;
@@ -169,6 +186,7 @@ type ExpenseSource = {
   amount: number;
   category: string;
   paidTo: string;
+  paymentMethod: string | null;
   voidedAt: string | null;
   voidedById: string | null;
   createdById: string | null;
@@ -178,8 +196,8 @@ type ExpenseSource = {
 const FEE_RECORD_COLUMNS = "id, studentId, month, year, expectedAmount, waivedAmount, fineAmount, createdById, updatedById";
 const FEE_PAYMENT_COLUMNS =
   "id, studentId, amount, paymentDate, paymentMethod, referenceNumber, voidedAt, voidedById, createdById, updatedById, feeRecord:FeeRecord(month, year), incomeTransaction:IncomeTransaction(incomeId)";
-const INCOME_COLUMNS = "id, incomeId, date, amount, category, source, studentId, voidedAt, voidedById, createdById, updatedById";
-const EXPENSE_COLUMNS = "id, expenseId, date, amount, category, paidTo, voidedAt, voidedById, createdById, updatedById";
+const INCOME_COLUMNS = "id, incomeId, date, amount, category, source, studentId, paymentMethod, voidedAt, voidedById, createdById, updatedById";
+const EXPENSE_COLUMNS = "id, expenseId, date, amount, category, paidTo, paymentMethod, voidedAt, voidedById, createdById, updatedById";
 
 function feeCharge(record: FeeRecordSource): Target {
   const label = monthLabel(record.month, record.year);
@@ -209,7 +227,7 @@ function feePayment(payment: FeePaymentSource): Target {
     sourceType: "FeePayment",
     sourceId: payment.id,
     kind: "FEE_PAYMENT",
-    debit: "BANK",
+    debit: moneyAccount(payment.paymentMethod),
     credit: "ACCOUNTS_RECEIVABLE",
     amount: payment.voidedAt ? 0 : round(Number(payment.amount)),
     date: calendarDateFromValue(payment.paymentDate),
@@ -227,7 +245,7 @@ function otherIncome(income: IncomeSource): Target {
     sourceType: "IncomeTransaction",
     sourceId: income.id,
     kind: "INCOME",
-    debit: "BANK",
+    debit: moneyAccount(income.paymentMethod),
     // Fee money with no fee record behind it (older records) is still fee income.
     credit: income.category === "STUDENT_FEE" ? "FEE_INCOME" : "OTHER_INCOME",
     amount: income.voidedAt ? 0 : round(Number(income.amount)),
@@ -247,7 +265,7 @@ function expense(row: ExpenseSource): Target {
     sourceId: row.id,
     kind: "EXPENSE",
     debit: "EXPENSES",
-    credit: "BANK",
+    credit: moneyAccount(row.paymentMethod),
     amount: row.voidedAt ? 0 : round(Number(row.amount)),
     date: calendarDateFromValue(row.date),
     studentId: null,
@@ -329,18 +347,14 @@ async function loadPosted(targets: Target[] | null) {
     }
   }
   const posted = new Map<string, Posted>();
-  // Oldest revision first: the first posting fixes the document's normal direction, and reversals subtract.
+  // Oldest revision first: a pair's first posting fixes its normal direction, and reversals subtract.
   for (const row of [...rows].sort((a, b) => a.revision - b.revision)) {
     const key = `${row.sourceType}:${row.sourceId}`;
-    const base = posted.get(key) ?? {
-      net: 0,
-      revision: 0,
-      debit: row.debitAccount as AccountCode,
-      credit: row.creditAccount as AccountCode,
-      studentId: row.studentId,
-      kind: row.kind as Kind,
-    };
-    base.net = round(base.net + (row.debitAccount === base.debit ? Number(row.amount) : -Number(row.amount)));
+    const base = posted.get(key) ?? { revision: 0, studentId: row.studentId, kind: row.kind as Kind, pairs: new Map<string, PostedPair>() };
+    const pk = pairKey(row.debitAccount, row.creditAccount);
+    const pair = base.pairs.get(pk) ?? { net: 0, debit: row.debitAccount as AccountCode, credit: row.creditAccount as AccountCode };
+    pair.net = round(pair.net + (row.debitAccount === pair.debit ? Number(row.amount) : -Number(row.amount)));
+    base.pairs.set(pk, pair);
     base.revision = Math.max(base.revision, row.revision);
     posted.set(key, base);
   }
@@ -393,22 +407,49 @@ async function sync(scope: LedgerScope | null, userId?: string | null) {
     const key = `${target.sourceType}:${target.sourceId}`;
     seen.add(key);
     const current = posted.get(key);
-    const delta = round(target.amount - (current?.net ?? 0));
+    let revision = current?.revision ?? 0;
+    const targetPair = pairKey(target.debit, target.credit);
+
+    // Accounts changed (for example cash to bank transfer): reverse what the old pair carries.
+    for (const [pk, pair] of current?.pairs ?? []) {
+      if (pk === targetPair || Math.abs(pair.net) < 0.005) continue;
+      revision += 1;
+      entries.push({
+        id: newId(),
+        date: today,
+        kind: target.kind,
+        sourceType: target.sourceType,
+        sourceId: target.sourceId,
+        revision,
+        debitAccount: pair.net > 0 ? pair.credit : pair.debit,
+        creditAccount: pair.net > 0 ? pair.debit : pair.credit,
+        amount: Math.abs(pair.net),
+        studentId: target.studentId,
+        memo: `Reclassified from ${ACCOUNTS[pair.net > 0 ? pair.debit : pair.credit]?.label ?? pair.debit} to ${ACCOUNTS[target.debit === "EXPENSES" ? target.credit : target.debit].label}: ${target.memo}`,
+        createdById: userId ?? target.adjustedById ?? null,
+      });
+    }
+
+    const existing = current?.pairs.get(targetPair);
+    // Net in the target's own direction.
+    const net = existing ? (existing.debit === target.debit ? existing.net : -existing.net) : 0;
+    const delta = round(target.amount - net);
     if (Math.abs(delta) < 0.005) continue;
     const first = !current;
     const forward = delta > 0;
+    revision += 1;
     entries.push({
       id: newId(),
       date: first ? target.date : today,
       kind: target.kind,
       sourceType: target.sourceType,
       sourceId: target.sourceId,
-      revision: (current?.revision ?? 0) + 1,
+      revision,
       debitAccount: forward ? target.debit : target.credit,
       creditAccount: forward ? target.credit : target.debit,
       amount: Math.abs(delta),
       studentId: target.studentId,
-      memo: first ? target.memo : forward ? target.increaseMemo : target.decreaseMemo,
+      memo: first || !existing ? target.memo : forward ? target.increaseMemo : target.decreaseMemo,
       createdById: userId ?? (first ? target.createdById : target.adjustedById) ?? null,
     });
   }
@@ -416,22 +457,27 @@ async function sync(scope: LedgerScope | null, userId?: string | null) {
   // A document that no longer exists (for example an import that was rolled back) is reversed in full.
   if (!scope) {
     for (const [key, current] of posted) {
-      if (seen.has(key) || Math.abs(current.net) < 0.005) continue;
+      if (seen.has(key)) continue;
       const [sourceType, sourceId] = key.split(":") as [SourceType, string];
-      entries.push({
-        id: newId(),
-        date: today,
-        kind: current.kind,
-        sourceType,
-        sourceId,
-        revision: current.revision + 1,
-        debitAccount: current.net > 0 ? current.credit : current.debit,
-        creditAccount: current.net > 0 ? current.debit : current.credit,
-        amount: Math.abs(current.net),
-        studentId: current.studentId,
-        memo: "Reversed: the original record was removed",
-        createdById: userId ?? null,
-      });
+      let revision = current.revision;
+      for (const pair of current.pairs.values()) {
+        if (Math.abs(pair.net) < 0.005) continue;
+        revision += 1;
+        entries.push({
+          id: newId(),
+          date: today,
+          kind: current.kind,
+          sourceType,
+          sourceId,
+          revision,
+          debitAccount: pair.net > 0 ? pair.credit : pair.debit,
+          creditAccount: pair.net > 0 ? pair.debit : pair.credit,
+          amount: Math.abs(pair.net),
+          studentId: current.studentId,
+          memo: "Reversed: the original record was removed",
+          createdById: userId ?? null,
+        });
+      }
     }
   }
 
@@ -548,12 +594,17 @@ async function journalTotals() {
   };
 }
 
+/** Brings late fees and the journal up to date before a report reads it. */
+export async function prepareLedger() {
+  const { refreshFeeBalances } = await import("@/lib/finance");
+  await refreshFeeBalances();
+  await ensureLedger();
+}
+
 export async function getLedgerSummary(): Promise<LedgerSummary> {
   try {
-    // This month's fees (and late fees) first, so they are part of the balances.
-    const { refreshFeeBalances } = await import("@/lib/finance");
-    await refreshFeeBalances();
-    await ensureLedger();
+    // Late fees first, so they are part of the balances.
+    await prepareLedger();
     const { totals, students } = await journalTotals();
     const map = new Map(totals.map((row) => [row.account, row]));
     const accounts = ACCOUNT_CODES.map((code) => {
@@ -581,11 +632,80 @@ export function balanceOf(summary: LedgerSummary, code: AccountCode) {
   return summary.ready ? summary.accounts.find((row) => row.code === code)?.balance ?? 0 : 0;
 }
 
+/** Voucher number for a student's monthly fee voucher, e.g. FV-202611-STU-2026-0005. */
+export function voucherNumber(year: number, month: number, registrationNo?: string | null, fallbackId?: string) {
+  return `FV-${year}${String(month).padStart(2, "0")}-${registrationNo || (fallbackId ?? "").slice(0, 8).toUpperCase()}`;
+}
+
+export const ENTRY_STATUS_LABELS = { POSTED: "Posted", ADJUSTMENT: "Adjustment", REVERSAL: "Reversal" } as const;
+export type EntryStatus = keyof typeof ENTRY_STATUS_LABELS;
+
+/** The account a document's normal posting debits, per kind (used to tell reversals from postings). */
+function isReversal(row: Pick<JournalRow, "kind" | "debitAccount" | "creditAccount">) {
+  switch (row.kind) {
+    case "FEE_CHARGE":
+      return row.debitAccount !== "ACCOUNTS_RECEIVABLE";
+    case "FEE_PAYMENT":
+      return row.creditAccount !== "ACCOUNTS_RECEIVABLE";
+    case "INCOME":
+      return row.debitAccount === "FEE_INCOME" || row.debitAccount === "OTHER_INCOME";
+    case "EXPENSE":
+      return row.debitAccount !== "EXPENSES";
+    default:
+      return false;
+  }
+}
+
+export function entryStatus(row: Pick<JournalRow, "kind" | "debitAccount" | "creditAccount" | "revision">): EntryStatus {
+  if (isReversal(row)) return "REVERSAL";
+  return row.revision > 1 ? "ADJUSTMENT" : "POSTED";
+}
+
 export type JournalListItem = JournalRow & {
   studentName: string | null;
   registrationNo: string | null;
   recordedBy: string | null;
+  /** Receipt, voucher or expense number of the source document. */
+  reference: string;
+  /** The fee voucher the entry belongs to, when there is one. */
+  voucher: { id: string; number: string; label: string } | null;
+  status: EntryStatus;
 };
+
+type SourceInfo = { reference: string; voucher: JournalListItem["voucher"] };
+
+/** Reference numbers and fee vouchers for a set of journal rows. */
+async function sourceInfo(rows: Array<JournalRow & { registrationNo?: string | null }>) {
+  const info = new Map<string, SourceInfo>();
+  const ids = (type: string) => [...new Set(rows.filter((row) => row.sourceType === type).map((row) => row.sourceId))];
+  const load = async <T,>(table: "FeeRecord" | "FeePayment" | "IncomeTransaction" | "ExpenseTransaction", columns: string, list: string[]) => {
+    const out: T[] = [];
+    for (const group of chunks(list, 150)) {
+      const res = await db().from(table).select(columns).in("id", group);
+      if (res.error) throw res.error;
+      out.push(...((res.data ?? []) as unknown as T[]));
+    }
+    return out;
+  };
+  type Fee = { id: string; month: number; year: number; student: { registrationNo: string | null } | null };
+  type Pay = { id: string; referenceNumber: string | null; feeRecord: Fee | null; incomeTransaction: { incomeId: string } | null };
+  const [fees, pays, incomes, expenses] = await Promise.all([
+    load<Fee>("FeeRecord", "id, month, year, student:Student(registrationNo)", ids("FeeRecord")),
+    load<Pay>("FeePayment", "id, referenceNumber, incomeTransaction:IncomeTransaction(incomeId), feeRecord:FeeRecord(id, month, year, student:Student(registrationNo))", ids("FeePayment")),
+    load<{ id: string; incomeId: string; referenceNumber: string | null }>("IncomeTransaction", "id, incomeId, referenceNumber", ids("IncomeTransaction")),
+    load<{ id: string; expenseId: string; referenceNumber: string | null }>("ExpenseTransaction", "id, expenseId, referenceNumber", ids("ExpenseTransaction")),
+  ]);
+  const voucherOf = (fee: Fee | null) =>
+    fee ? { id: fee.id, number: voucherNumber(fee.year, fee.month, fee.student?.registrationNo, fee.id), label: monthLabel(fee.month, fee.year) } : null;
+  for (const fee of fees) {
+    const voucher = voucherOf(fee);
+    info.set(fee.id, { reference: voucher!.number, voucher });
+  }
+  for (const pay of pays) info.set(pay.id, { reference: pay.incomeTransaction?.incomeId ?? pay.referenceNumber ?? pay.id.slice(0, 8), voucher: voucherOf(pay.feeRecord) });
+  for (const income of incomes) info.set(income.id, { reference: income.incomeId, voucher: null });
+  for (const row of expenses) info.set(row.id, { reference: row.expenseId, voucher: null });
+  return info;
+}
 
 export async function getJournal(filters: {
   account?: string;
@@ -593,23 +713,32 @@ export async function getJournal(filters: {
   kind?: string;
   from?: string;
   to?: string;
+  /** Searches the description, student, reference and voucher number. */
+  q?: string;
+  status?: string;
+  sourceId?: string;
+  entryNo?: number;
   limit?: number;
 } = {}): Promise<{ ready: false } | { ready: true; rows: JournalListItem[]; truncated: boolean }> {
   const limit = filters.limit ?? 300;
   const account = filters.account && ACCOUNT_CODES.includes(filters.account as AccountCode) ? filters.account : null;
-  // The desktop dummy store has no OR filter, so it filters by account after reading.
-  const filterLater = Boolean(account) && isDummyDataEnabled();
+  const q = filters.q?.trim().toLowerCase() ?? "";
+  const status = filters.status && filters.status in ENTRY_STATUS_LABELS ? (filters.status as EntryStatus) : null;
+  // The desktop dummy store has no OR filter; searches and status are applied after reading.
+  const filterLater = (Boolean(account) && isDummyDataEnabled()) || Boolean(q) || Boolean(status);
   let query = db()
     .from("JournalEntry")
     .select("*, student:Student(firstName, lastName, registrationNo), createdBy:User(name)")
     .order("entryNo", { ascending: false })
-    .limit(filterLater ? 100_000 : limit + 1);
+    .limit(filterLater ? 20_000 : limit + 1);
   if (filters.studentId) query = query.eq("studentId", filters.studentId);
   if (filters.kind) query = query.eq("kind", filters.kind);
+  if (filters.sourceId) query = query.eq("sourceId", filters.sourceId);
+  if (filters.entryNo) query = query.eq("entryNo", filters.entryNo);
   if (filters.from) query = query.gte("date", filters.from);
   if (filters.to) query = query.lte("date", filters.to);
   // Either side of the posting.
-  if (account && !filterLater) query = query.or(`debitAccount.eq.${account},creditAccount.eq.${account}`);
+  if (account && !isDummyDataEnabled()) query = query.or(`debitAccount.eq.${account},creditAccount.eq.${account}`);
   const res = await query;
   if (res.error) {
     if (isMissingJournal(res.error)) return { ready: false };
@@ -619,15 +748,34 @@ export async function getJournal(filters: {
     student: { firstName: string; lastName: string; registrationNo: string | null } | null;
     createdBy: { name: string } | null;
   };
-  const rows = ((res.data ?? []) as unknown as Joined[])
-    .filter((row) => !filterLater || row.debitAccount === account || row.creditAccount === account)
+  let base = ((res.data ?? []) as unknown as Joined[])
+    .filter((row) => !account || row.debitAccount === account || row.creditAccount === account)
     .map(({ student, createdBy, ...row }) => ({
+      ...row,
+      amount: Number(row.amount),
+      studentName: student ? `${student.firstName} ${student.lastName}`.trim() : null,
+      registrationNo: student?.registrationNo ?? null,
+      recordedBy: createdBy?.name ?? null,
+      status: entryStatus(row),
+    }));
+  if (status) base = base.filter((row) => row.status === status);
+  // Searching needs references, so look them up for the candidates first.
+  const candidates = q ? base : base.slice(0, limit + 1);
+  const info = await sourceInfo(candidates);
+  let rows: JournalListItem[] = candidates.map((row) => ({
     ...row,
-    amount: Number(row.amount),
-    studentName: student ? `${student.firstName} ${student.lastName}`.trim() : null,
-    registrationNo: student?.registrationNo ?? null,
-    recordedBy: createdBy?.name ?? null,
+    reference: info.get(row.sourceId)?.reference ?? "",
+    voucher: info.get(row.sourceId)?.voucher ?? null,
   }));
+  if (q) {
+    rows = rows.filter((row) =>
+      [`je-${String(row.entryNo).padStart(5, "0")}`, row.memo, row.studentName, row.registrationNo, row.reference, row.voucher?.number, row.recordedBy]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }
   return { ready: true, rows: rows.slice(0, limit), truncated: rows.length > limit };
 }
 
@@ -701,10 +849,16 @@ export function netMovement(rows: Pick<MonthlyMovement, "debitAccount" | "credit
   return round(total);
 }
 
-/** Money received from students: fee payments (DR Bank / CR Accounts Receivable) and fee income received directly. */
-export function collectionsIn(rows: MonthlyMovement[]) {
-  return netMovement(
-    rows.filter((row) => row.kind === "FEE_PAYMENT" || (row.kind === "INCOME" && (row.creditAccount === "FEE_INCOME" || row.debitAccount === "FEE_INCOME"))),
-    "BANK",
+/** Money received from students: fee payments (DR Bank or Cash / CR Accounts Receivable) and fee income received directly. */
+export function collectionsIn(rows: Pick<MonthlyMovement, "kind" | "debitAccount" | "creditAccount" | "amount">[]) {
+  const fromStudents = rows.filter(
+    (row) => row.kind === "FEE_PAYMENT" || (row.kind === "INCOME" && (row.creditAccount === "FEE_INCOME" || row.debitAccount === "FEE_INCOME")),
   );
+  return round(netMovement(fromStudents, "BANK") + netMovement(fromStudents, "CASH"));
+}
+
+/** Fee payments split by where the money went. */
+export function collectionsByAccount(rows: Pick<MonthlyMovement, "kind" | "debitAccount" | "creditAccount" | "amount">[]) {
+  const fromStudents = rows.filter((row) => row.kind === "FEE_PAYMENT" || (row.kind === "INCOME" && (row.creditAccount === "FEE_INCOME" || row.debitAccount === "FEE_INCOME")));
+  return { bank: netMovement(fromStudents, "BANK"), cash: netMovement(fromStudents, "CASH") };
 }

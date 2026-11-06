@@ -175,46 +175,115 @@ export function FinanceTrendChart({ money, fees, year, showMoney }: { money: Mon
   );
 }
 
-type LedgerMonth = { label: string; income: number; collections: number; expenses: number; receivable: number };
+type LedgerMonth = {
+  label: string;
+  accrued: number;
+  income: number;
+  collections: number;
+  expenses: number;
+  receivable: number;
+  vouchersPaid: number;
+  vouchersPartial: number;
+  vouchersUnpaid: number;
+  collectionRate: number | null;
+};
 const RECEIVABLE_COLOR = "#1f2622";
+type LedgerView = "accrual" | "vouchers" | "rate";
 
-/** Income, collections and expenses per month from the journal, with Accounts Receivable at each month end. */
+/**
+ * Accounting analytics from the journal, by tab: accrued fee income against
+ * collections with Accounts Receivable at each month end; fee vouchers by
+ * status; and the share of each month's vouchers collected so far.
+ */
 export function LedgerTrendChart({ months, year, receivableNow }: { months: LedgerMonth[]; year: number; receivableNow: number }) {
   const mounted = useMounted();
-  const total = (key: "income" | "collections" | "expenses") => months.reduce((sum, row) => sum + row[key], 0);
-  const empty = !months.some((row) => row.income || row.collections || row.expenses || row.receivable);
+  const [view, setView] = useState<LedgerView>("accrual");
+  const sum = (key: "accrued" | "collections" | "vouchersPaid" | "vouchersPartial" | "vouchersUnpaid") => months.reduce((total, row) => total + row[key], 0);
+  const rates = months.filter((row) => row.collectionRate !== null);
+  const empty =
+    view === "accrual"
+      ? !months.some((row) => row.accrued || row.collections || row.receivable)
+      : view === "vouchers"
+        ? !months.some((row) => row.vouchersPaid || row.vouchersPartial || row.vouchersUnpaid)
+        : !rates.length;
+  const subtitle = {
+    accrual: `Fee income accrued when vouchers are issued, against payments collected, each month of ${year}, with Accounts Receivable at month end.`,
+    vouchers: `Fee vouchers for each month of ${year} by payment status.`,
+    rate: `Share of each fee month's vouchers collected so far, ${year}.`,
+  }[view];
+  const legend =
+    view === "accrual"
+      ? [
+          { color: SERIES.green, label: "Accrued fee income", value: formatPKR(sum("accrued")) },
+          { color: SERIES.blue, label: "Collections", value: formatPKR(sum("collections")) },
+          { color: RECEIVABLE_COLOR, label: "Receivables now", value: formatPKR(receivableNow) },
+        ]
+      : view === "vouchers"
+        ? [
+            { color: SERIES.green, label: "Paid", value: String(sum("vouchersPaid")) },
+            { color: SERIES.blue, label: "Partially paid", value: String(sum("vouchersPartial")) },
+            { color: SERIES.orange, label: "Unpaid", value: String(sum("vouchersUnpaid")) },
+          ]
+        : [
+            {
+              color: SERIES.green,
+              label: "Latest month",
+              value: rates.length ? `${rates[rates.length - 1].collectionRate}%` : "—",
+            },
+          ];
   return (
     <div>
-      <div>
-        <h2 className="text-base font-semibold text-navy">Financial overview</h2>
-        <p className="text-xs text-slate-500">Income, collections and expenses each month of {year}, and Accounts Receivable at month end. From the accounting journal.</p>
-      </div>
-      <div className="mt-4">
-        <Legend
-          items={[
-            { color: SERIES.green, label: "Income", value: formatPKR(total("income")) },
-            { color: SERIES.blue, label: "Collections", value: formatPKR(total("collections")) },
-            { color: SERIES.orange, label: "Expenses", value: formatPKR(total("expenses")) },
-            { color: RECEIVABLE_COLOR, label: "Receivables now", value: formatPKR(receivableNow) },
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-navy">Accounting analytics</h2>
+          <p className="text-xs text-slate-500">{subtitle}</p>
+        </div>
+        <Tabs
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "accrual", label: "Income vs collections" },
+            { value: "vouchers", label: "Paid vs unpaid" },
+            { value: "rate", label: "Collection trend" },
           ]}
         />
+      </div>
+      <div className="mt-4">
+        <Legend items={legend} />
       </div>
       <div className="mt-3 h-64 sm:h-72">
         {!mounted ? (
           <Placeholder className="h-full" />
         ) : empty ? (
-          <div className="flex h-full items-center justify-center rounded-2xl bg-slate-50 text-sm text-slate-500">No journal entries for {year} yet.</div>
+          <div className="flex h-full items-center justify-center rounded-2xl bg-slate-50 text-sm text-slate-500">No records for {year} yet.</div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={months} barGap={2} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
               <CartesianGrid stroke={grid} vertical={false} />
               <XAxis dataKey="label" tick={tick} axisLine={false} tickLine={false} />
-              <YAxis tick={tick} axisLine={false} tickLine={false} width={44} tickFormatter={compact} />
-              <Tooltip cursor={{ fill: "rgba(224,123,69,0.08)", radius: 8 }} content={<ChartTooltip />} />
-              <Bar dataKey="income" name="Income" fill={SERIES.green} radius={[4, 4, 0, 0]} maxBarSize={14} />
-              <Bar dataKey="collections" name="Collections" fill={SERIES.blue} radius={[4, 4, 0, 0]} maxBarSize={14} />
-              <Bar dataKey="expenses" name="Expenses" fill={SERIES.orange} radius={[4, 4, 0, 0]} maxBarSize={14} />
-              <Line dataKey="receivable" name="Receivables (month end)" type="monotone" stroke={RECEIVABLE_COLOR} strokeWidth={2} dot={{ r: 2.5 }} />
+              {view === "accrual" ? (
+                <>
+                  <YAxis tick={tick} axisLine={false} tickLine={false} width={44} tickFormatter={compact} />
+                  <Tooltip cursor={{ fill: "rgba(224,123,69,0.08)", radius: 8 }} content={<ChartTooltip />} />
+                  <Bar dataKey="accrued" name="Accrued fee income" fill={SERIES.green} radius={[4, 4, 0, 0]} maxBarSize={16} />
+                  <Bar dataKey="collections" name="Collections" fill={SERIES.blue} radius={[4, 4, 0, 0]} maxBarSize={16} />
+                  <Line dataKey="receivable" name="Receivables (month end)" type="monotone" stroke={RECEIVABLE_COLOR} strokeWidth={2} dot={{ r: 2.5 }} />
+                </>
+              ) : view === "vouchers" ? (
+                <>
+                  <YAxis tick={tick} axisLine={false} tickLine={false} width={44} allowDecimals={false} />
+                  <Tooltip cursor={{ fill: "rgba(224,123,69,0.08)", radius: 8 }} content={<ChartTooltip money={false} />} />
+                  <Bar dataKey="vouchersPaid" name="Paid" stackId="v" fill={SERIES.green} maxBarSize={22} />
+                  <Bar dataKey="vouchersPartial" name="Partially paid" stackId="v" fill={SERIES.blue} maxBarSize={22} />
+                  <Bar dataKey="vouchersUnpaid" name="Unpaid" stackId="v" fill={SERIES.orange} radius={[4, 4, 0, 0]} maxBarSize={22} />
+                </>
+              ) : (
+                <>
+                  <YAxis tick={tick} axisLine={false} tickLine={false} width={44} domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+                  <Tooltip cursor={{ stroke: grid }} content={<ChartTooltip money={false} />} />
+                  <Line dataKey="collectionRate" name="Collected (%)" type="monotone" stroke={SERIES.green} strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
+                </>
+              )}
             </ComposedChart>
           </ResponsiveContainer>
         )}
